@@ -35,6 +35,9 @@ class GameRoom {
     this.handNumber = 0;
     this.chatHistory = [];
     this.lastAction = null;
+    this.autoDeal = false;
+    this.handDelay = 10;
+    this.handHistory = []; // last 50 hands
   }
 
   // ─── Player Management ──────────────────────────────────────────────────
@@ -473,6 +476,22 @@ class GameRoom {
         pots: this.pots,
         handNumber: this.handNumber
       };
+      // Save uncontested hand to history
+      this.handHistory.unshift({
+        handNumber: this.handNumber,
+        board: this.board,
+        winners: [{ playerId: winner.id, amount: totalPot, uncontested: true }],
+        showdownHands: {},
+        pots: JSON.parse(JSON.stringify(this.pots)),
+        isOmaha: this.isOmaha,
+        isBombPot: this.isBombPot,
+        playerSnapshots: this.players.map(p => ({
+          id: p.id, name: p.name, holeCards: p.holeCards || [],
+          folded: p.folded, totalBet: p.totalBet, stackAfter: p.stack
+        })),
+        timestamp: Date.now()
+      });
+      if (this.handHistory.length > 50) this.handHistory.pop();
       this.phase = 'waiting';
       return result;
     }
@@ -523,6 +542,30 @@ class GameRoom {
       isBombPot: this.isBombPot,
       handNumber: this.handNumber
     };
+
+    // Save to hand history
+    const snapshot = {
+      handNumber: this.handNumber,
+      board,
+      board2: board2 || null,
+      winners: winnerSummary,
+      showdownHands,
+      pots: JSON.parse(JSON.stringify(this.pots)),
+      isOmaha: this.isOmaha,
+      isBombPot: this.isBombPot,
+      ranItTwice: !!board2,
+      playerSnapshots: this.players.map(p => ({
+        id: p.id,
+        name: p.name,
+        holeCards: p.holeCards || [],
+        folded: p.folded,
+        totalBet: p.totalBet,
+        stackAfter: p.stack
+      })),
+      timestamp: Date.now()
+    };
+    this.handHistory.unshift(snapshot);
+    if (this.handHistory.length > 50) this.handHistory.pop();
 
     this.phase = 'waiting';
     return handResult;
@@ -694,10 +737,13 @@ class GameRoom {
       isBombPot: this.isBombPot,
       isOmaha: this.isOmaha,
       bombPotFrequency: this.bombPotFrequency,
+      autoDeal: this.autoDeal,
+      handDelay: this.handDelay,
       runItTwiceOffered: this.runItTwiceOffered,
       currentTurn: currentPlayer?.id || null,
       handNumber: this.handNumber,
       lastAction: this.lastAction,
+      handHistory: this.handHistory,
       players: this.players.map(p => ({
         id: p.id,
         name: p.name,

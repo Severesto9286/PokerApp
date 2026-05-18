@@ -1,7 +1,7 @@
 import React from 'react';
 import Card from './Card.jsx';
 
-export default function PlayerSeat({ player, isCurrentTurn, myId, seatPosition }) {
+export default function PlayerSeat({ player, isCurrentTurn, myId, seatPosition, animationSpeed = 1, animate = true }) {
   if (!player) return null;
 
   const isMe = player.id === myId;
@@ -22,7 +22,7 @@ export default function PlayerSeat({ player, isCurrentTurn, myId, seatPosition }
       {seatPosition >= 3 && (
         <div className="seat-cards">
           {player.holeCards && player.holeCards.length > 0
-            ? player.holeCards.map((c, i) => <Card key={i} card={c} size="sm" />)
+            ? player.holeCards.map((c, i) => <Card key={i} card={c} size="sm" isNew animate={animate} animationSpeed={animationSpeed} />)
             : player.cardCount > 0
               ? Array.from({ length: player.cardCount }).map((_, i) => <Card key={i} faceDown size="sm" />)
               : null
@@ -55,7 +55,7 @@ export default function PlayerSeat({ player, isCurrentTurn, myId, seatPosition }
       {seatPosition < 3 && (
         <div className="seat-cards">
           {player.holeCards && player.holeCards.length > 0
-            ? player.holeCards.map((c, i) => <Card key={i} card={c} size="sm" />)
+            ? player.holeCards.map((c, i) => <Card key={i} card={c} size="sm" isNew animate={animate} animationSpeed={animationSpeed} />)
             : player.cardCount > 0
               ? Array.from({ length: player.cardCount }).map((_, i) => <Card key={i} faceDown size="sm" />)
               : null

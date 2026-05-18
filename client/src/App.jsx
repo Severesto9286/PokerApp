@@ -1,12 +1,48 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useSettings } from './hooks/useSettings.js';
+import SettingsPanel from './components/SettingsPanel.jsx';
+import * as Audio from './utils/audio.js';
 import Card from './components/Card.jsx';
 import PlayerSeat from './components/PlayerSeat.jsx';
 import ActionPanel from './components/ActionPanel.jsx';
 import HandResult from './components/HandResult.jsx';
 import HostControls from './components/HostControls.jsx';
+import HandHistory from './components/HandHistory.jsx';
 import { useSocket } from './hooks/useSocket.js';
 
 const API = import.meta.env.VITE_SERVER_URL || '';
+
+// ─── Best hand name for display ───────────────────────────────────────────────
+const RANK_VAL = {'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'T':10,'J':11,'Q':12,'K':13,'A':14};
+function quickHandName(holeCards, board) {
+  if (!holeCards || !board || board.length < 3) return null;
+  try {
+    const all = [...holeCards, ...board];
+    const vals = all.map(c => RANK_VAL[c[0]]).sort((a,b) => b-a);
+    const suits = all.map(c => c[1]);
+    const counts = {};
+    for (const v of vals) counts[v] = (counts[v]||0)+1;
+    const freq = Object.values(counts).sort((a,b)=>b-a);
+    const unique = [...new Set(vals)].sort((a,b)=>b-a);
+    const isFlush = suits.filter(s=>s===suits[0]).length >= 5;
+    let isStraight = false;
+    for (let i = 0; i <= unique.length-5; i++) {
+      if (unique[i]-unique[i+4]===4) { isStraight=true; break; }
+    }
+    if (unique.includes(14)&&unique.includes(2)&&unique.includes(3)&&unique.includes(4)&&unique.includes(5)) isStraight=true;
+    if (isStraight && isFlush) return 'Straight Flush';
+    if (freq[0]===4) return 'Four of a Kind';
+    if (freq[0]===3&&freq[1]===2) return 'Full House';
+    if (isFlush) return 'Flush';
+    if (isStraight) return 'Straight';
+    if (freq[0]===3) return 'Three of a Kind';
+    if (freq[0]===2&&freq[1]===2) return 'Two Pair';
+    if (freq[0]===2) return 'One Pair';
+    return 'High Card';
+  } catch { return null; }
+}
+
+
 
 // ─── Toast system ─────────────────────────────────────────────────────────────
 function useToasts() {
@@ -141,9 +177,14 @@ function GameTable({ session }) {
   const [runItTwiceOffer, setRunItTwiceOffer] = useState(null);
   const [myVoteRIT, setMyVoteRIT] = useState(null);
   const [timeLeft, setTimeLeft] = useState(null);
+  const [autoDealCountdown, setAutoDealCountdown] = useState(null);
+  const autoDealTimerRef = useRef(null);
   const { toasts, add: addToast } = useToasts();
   const chatBottomRef = useRef(null);
   const timerRef = useRef(null);
+  const { settings, update: updateSetting } = useSettings();
+  const prevBoardLen = useRef(0);
+  const prevPhase = useRef(null);
 
   const handleEvent = useCallback(({ type, data }) => {
     switch (type) {
@@ -154,14 +195,43 @@ function GameTable({ session }) {
         setHandResult(null);
         setRunItTwiceOffer(null);
         setMyVoteRIT(null);
+        setAutoDealCountdown(null);
+        clearInterval(autoDealTimerRef.current);
         addToast(data.isBombPot ? '💣 Bomb Pot! PLO rules.' : `Hand #${data.handNumber} started`);
+        if (settings.sfxEnabled) {
+          if (data.isBombPot) Audio.playBombPot();
+          else Audio.playCardDeal();
+        }
+        prevBoardLen.current = data.board?.length || 0;
+        prevPhase.current = data.phase;
         break;
       case 'actionTaken':
-        // Could show action log
+        if (settings.sfxEnabled) {
+          const a = data?.action;
+          if (a === 'fold') Audio.playFold();
+          else if (a === 'check') Audio.playCheck();
+          else if (a === 'allIn') Audio.playAllIn();
+          else if (a === 'raise' || a === 'bet') Audio.playChipRaise();
+          else if (a === 'call') Audio.playChipBet();
+        }
         break;
       case 'handComplete':
         setHandResult(data);
         setRunItTwiceOffer(null);
+        if (settings.sfxEnabled) Audio.playWin();
+        if (settings.sfxEnabled) Audio.playShowdown();
+        // Start auto-deal countdown display
+        if (gameState?.autoDeal) {
+          const delay = gameState.handDelay || 10;
+          setAutoDealCountdown(delay);
+          clearInterval(autoDealTimerRef.current);
+          autoDealTimerRef.current = setInterval(() => {
+            setAutoDealCountdown(c => {
+              if (c <= 1) { clearInterval(autoDealTimerRef.current); return null; }
+              return c - 1;
+            });
+          }, 1000);
+        }
         break;
       case 'runItTwiceOffer':
         setRunItTwiceOffer(data);
@@ -169,8 +239,12 @@ function GameTable({ session }) {
         break;
       case 'newStreet':
         setRunItTwiceOffer(null);
+        if (settings.sfxEnabled) Audio.playNewStreet();
+        prevBoardLen.current = data?.board?.length || 0;
+        prevPhase.current = data?.phase;
         break;
       case 'yourTurn':
+        if (data.playerId === playerId && settings.sfxEnabled) Audio.playYourTurn();
         if (data.playerId === playerId) {
           setTimeLeft(30);
           clearInterval(timerRef.current);
@@ -213,6 +287,20 @@ function GameTable({ session }) {
   }, [playerId, isHost]);
 
   const { emit } = useSocket({ roomId, playerId, onEvent: handleEvent });
+
+  // Init audio on first mount
+  useEffect(() => {
+    Audio.setMasterVolume(settings.masterVolume);
+    Audio.setMusicVolume(settings.musicVolume);
+    Audio.setSfxVolume(settings.sfxVolume);
+    if (settings.musicEnabled) Audio.startMusic();
+    return () => Audio.stopMusic();
+  }, []);
+
+  // Sync volume changes
+  useEffect(() => { Audio.setMasterVolume(settings.masterVolume); }, [settings.masterVolume]);
+  useEffect(() => { Audio.setMusicVolume(settings.musicVolume); }, [settings.musicVolume]);
+  useEffect(() => { Audio.setSfxVolume(settings.sfxVolume); }, [settings.sfxVolume]);
 
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -259,6 +347,8 @@ function GameTable({ session }) {
               isCurrentTurn={gameState?.currentTurn === player.id}
               myId={playerId}
               seatPosition={position}
+              animationSpeed={settings.animationSpeed}
+              animate={settings.animationsEnabled}
             />
           ))}
 
@@ -274,11 +364,17 @@ function GameTable({ session }) {
                 </div>
                 <div className="board-cards">
                   {gameState.board.slice(0, 3).map((c, i) => (
-                    <Card key={`b${i}`} card={c} size="md" isNew />
+                    <Card key={`b${i}`} card={c} size="md"
+                      isNew={gameState.board.length === 3}
+                      animate={settings.animationsEnabled}
+                      animationSpeed={settings.animationSpeed} />
                   ))}
                   {gameState.board.length > 3 && <div className="board-divider" />}
                   {gameState.board.slice(3).map((c, i) => (
-                    <Card key={`t${i}`} card={c} size="md" isNew />
+                    <Card key={`t${i}`} card={c} size="md"
+                      isNew
+                      animate={settings.animationsEnabled}
+                      animationSpeed={settings.animationSpeed} />
                   ))}
                 </div>
               </>
@@ -296,6 +392,46 @@ function GameTable({ session }) {
             )}
           </div>
         </div>
+
+        {/* Auto-deal countdown */}
+        {autoDealCountdown !== null && (
+          <div style={{
+            position: 'absolute', top: '1rem', left: '50%', transform: 'translateX(-50%)',
+            background: 'rgba(10,22,14,0.92)', border: '1px solid rgba(201,168,76,0.3)',
+            borderRadius: '24px', padding: '0.4rem 1.25rem',
+            fontSize: '0.85rem', color: 'var(--text-secondary)',
+            zIndex: 25, display: 'flex', alignItems: 'center', gap: '0.5rem'
+          }}>
+            <span style={{ color: 'var(--gold)', fontFamily: 'DM Mono', fontWeight: '600', fontSize: '1.1rem' }}>
+              {autoDealCountdown}
+            </span>
+            Next hand dealing...
+          </div>
+        )}
+
+        {/* Hole Card Tray - my cards displayed large at bottom */}
+        {me && me.holeCards && me.holeCards.length > 0 && (
+          <div className="hole-card-tray">
+            <div className="hole-card-tray-label">Your Hand</div>
+            <div className="hole-card-tray-cards">
+              {me.holeCards.map((c, i) => (
+                <Card
+                  key={i}
+                  card={c}
+                  size="xl"
+                  isNew={i === me.holeCards.length - 1}
+                  animate={settings.animationsEnabled}
+                  animationSpeed={settings.animationSpeed}
+                />
+              ))}
+            </div>
+            {gameState?.board?.length >= 3 && (
+              <div className="hole-card-tray-hand">
+                {quickHandName(me.holeCards, gameState.board)}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Run It Twice overlay */}
         {runItTwiceOffer && (
@@ -371,6 +507,12 @@ function GameTable({ session }) {
           <button className={`sidebar-tab ${sidebarTab === 'info' ? 'active' : ''}`} onClick={() => setSidebarTab('info')}>
             Info
           </button>
+          <button className={`sidebar-tab ${sidebarTab === 'history' ? 'active' : ''}`} onClick={() => setSidebarTab('history')}>
+            History
+          </button>
+          <button className={`sidebar-tab ${sidebarTab === 'settings' ? 'active' : ''}`} onClick={() => setSidebarTab('settings')}>
+            ⚙
+          </button>
         </div>
 
         {sidebarTab === 'host' && isHost && (
@@ -384,6 +526,7 @@ function GameTable({ session }) {
               onSetBombFreq={(f) => emit('setBombPotFrequency', { frequency: f })}
               onStartHand={() => emit('startHand')}
               onRemovePlayer={(id) => emit('removePlayer', { targetPlayerId: id })}
+              onSetAutoDeal={(autoDeal, handDelay) => emit('setAutoDeal', { autoDeal, handDelay })}
             />
           </div>
         )}
@@ -422,6 +565,18 @@ function GameTable({ session }) {
               <button className="btn btn-outline btn-sm" onClick={sendChat}>Send</button>
             </div>
           </>
+        )}
+
+        {sidebarTab === 'history' && (
+          <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 42px)', overflow: 'hidden' }}>
+            <HandHistory handHistory={gameState?.handHistory} myId={playerId} />
+          </div>
+        )}
+
+        {sidebarTab === 'settings' && (
+          <div className="sidebar-content">
+            <SettingsPanel settings={settings} onUpdate={updateSetting} />
+          </div>
         )}
 
         {sidebarTab === 'info' && (

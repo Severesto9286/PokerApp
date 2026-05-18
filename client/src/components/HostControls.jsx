@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 
-export default function HostControls({ gameState, onApprove, onDeny, onSetStack, onSetBlinds, onSetBombFreq, onStartHand, onRemovePlayer }) {
+export default function HostControls({ gameState, onApprove, onDeny, onSetStack, onSetBlinds, onSetBombFreq, onStartHand, onRemovePlayer, onSetAutoDeal }) {
   const [editStack, setEditStack] = useState({});
   const [sbInput, setSbInput] = useState(String(gameState?.smallBlind || 10));
   const [bbInput, setBbInput] = useState(String(gameState?.bigBlind || 20));
   const [bombFreq, setBombFreq] = useState(Math.round((gameState?.bombPotFrequency || 0.2) * 100));
+  const [handDelay, setHandDelay] = useState(gameState?.handDelay || 10);
   const [pendingStacks, setPendingStacks] = useState({});
 
   const canStart = gameState?.phase === 'waiting' && (gameState?.players?.filter(p => !p.sitOut && p.stack > 0).length >= 2);
@@ -56,6 +57,39 @@ export default function HostControls({ gameState, onApprove, onDeny, onSetStack,
         <div className="text-sm text-muted">
           {bombFreq === 0 ? 'Never' : bombFreq === 100 ? 'Every hand is a bomb pot' : `~1 in ${Math.round(100/bombFreq)} hands`}
         </div>
+      </div>
+
+      {/* Auto Deal */}
+      <div className="host-section">
+        <div className="host-section-title">Auto Deal</div>
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-sm text-muted">Deal next hand automatically</span>
+          <button
+            className={`btn btn-sm ${gameState?.autoDeal ? 'btn-gold' : 'btn-ghost'}`}
+            onClick={() => onSetAutoDeal(!gameState?.autoDeal, handDelay)}
+          >
+            {gameState?.autoDeal ? '● On' : '○ Off'}
+          </button>
+        </div>
+        {gameState?.autoDeal && (
+          <div className="flex items-center gap-2 mt-1">
+            <span className="text-sm text-muted">Delay (seconds)</span>
+            <input
+              type="number"
+              value={handDelay}
+              min="3"
+              max="60"
+              style={{ width: '70px' }}
+              onChange={e => setHandDelay(parseInt(e.target.value) || 10)}
+              onBlur={() => onSetAutoDeal(true, handDelay)}
+            />
+          </div>
+        )}
+        {gameState?.autoDeal && (
+          <div className="text-sm text-muted mt-1">
+            Next hand deals {handDelay}s after showdown
+          </div>
+        )}
       </div>
 
       {/* Pending Join Requests */}

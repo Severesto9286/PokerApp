@@ -269,16 +269,16 @@ input[type="range"] {
 
 /* ─── Playing Cards ──────────────────────────────────────────────── */
 .card {
-  width: 52px;
-  height: 76px;
+  width: 76px;
+  height: 110px;
   background: var(--card-bg);
-  border-radius: 6px;
+  border-radius: 9px;
   border: 1px solid var(--card-border);
   box-shadow: var(--shadow-card);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  padding: 4px 5px;
+  padding: 6px 7px;
   position: relative;
   overflow: hidden;
   flex-shrink: 0;
@@ -286,17 +286,29 @@ input[type="range"] {
 }
 
 .card.card-sm {
-  width: 40px;
-  height: 58px;
-  border-radius: 5px;
-  padding: 3px 4px;
+  width: 56px;
+  height: 80px;
+  border-radius: 7px;
+  padding: 4px 5px;
 }
 
 .card.card-lg {
-  width: 64px;
-  height: 94px;
-  padding: 5px 6px;
+  width: 96px;
+  height: 138px;
+  padding: 8px 9px;
 }
+
+/* Extra large for player's own hole cards */
+.card.card-xl {
+  width: 110px;
+  height: 158px;
+  border-radius: 10px;
+  padding: 9px 10px;
+}
+
+.card-xl .card-rank { font-size: 1.6rem; }
+.card-xl .card-suit-center { font-size: 2.8rem; }
+.card-xl .card-rank-bottom { font-size: 1.6rem; }
 
 .card-back {
   background: #1a2e5a;
@@ -307,13 +319,13 @@ input[type="range"] {
 
 .card-rank {
   font-family: 'Playfair Display', serif;
-  font-size: 1rem;
+  font-size: 1.2rem;
   font-weight: 700;
   line-height: 1;
 }
 
 .card-suit-center {
-  font-size: 1.6rem;
+  font-size: 2rem;
   text-align: center;
   line-height: 1;
   position: absolute;
@@ -324,20 +336,20 @@ input[type="range"] {
 
 .card-rank-bottom {
   font-family: 'Playfair Display', serif;
-  font-size: 1rem;
+  font-size: 1.2rem;
   font-weight: 700;
   line-height: 1;
   align-self: flex-end;
   transform: rotate(180deg);
 }
 
-.card-sm .card-rank { font-size: 0.75rem; }
-.card-sm .card-suit-center { font-size: 1.1rem; }
-.card-sm .card-rank-bottom { font-size: 0.75rem; }
+.card-sm .card-rank { font-size: 1rem; }
+.card-sm .card-suit-center { font-size: 1.55rem; }
+.card-sm .card-rank-bottom { font-size: 1rem; }
 
-.card-lg .card-rank { font-size: 1.2rem; }
-.card-lg .card-suit-center { font-size: 2rem; }
-.card-lg .card-rank-bottom { font-size: 1.2rem; }
+.card-lg .card-rank { font-size: 1.5rem; }
+.card-lg .card-suit-center { font-size: 2.6rem; }
+.card-lg .card-rank-bottom { font-size: 1.5rem; }
 
 .red-suit { color: var(--suit-red); }
 .black-suit { color: var(--suit-black); }
@@ -473,10 +485,47 @@ input[type="range"] {
 .seat-pos-4 { top: -20px; right: -30px; }
 .seat-pos-5 { bottom: -30px; right: -40px; }
 
+
+/* ─── Hole Card Tray (bottom of screen) ──────────────────────────── */
+.hole-card-tray {
+  position: absolute;
+  bottom: 5.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  z-index: 15;
+  pointer-events: none;
+}
+
+.hole-card-tray-cards {
+  display: flex;
+  gap: 0.5rem;
+  filter: drop-shadow(0 8px 24px rgba(0,0,0,0.7));
+}
+
+.hole-card-tray-label {
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(201,168,76,0.5);
+  font-weight: 600;
+}
+
+.hole-card-tray-hand {
+  font-size: 0.78rem;
+  color: var(--gold);
+  font-weight: 600;
+  font-family: 'Playfair Display', serif;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.8);
+}
+
 /* ─── Action Panel ───────────────────────────────────────────────── */
 .action-panel {
   position: absolute;
-  bottom: 1.5rem;
+  bottom: 12.5rem;
   left: 50%;
   transform: translateX(-50%);
   display: flex;

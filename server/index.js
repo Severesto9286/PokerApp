@@ -177,6 +177,16 @@ io.on('connection', (socket) => {
     broadcastState(room);
   });
 
+  socket.on('setAutoDeal', ({ autoDeal, handDelay }) => {
+    const sp = socketToPlayer.get(socket.id);
+    if (!sp) return;
+    const room = rooms.get(sp.roomId);
+    if (!room || sp.playerId !== room.hostId) return;
+    if (autoDeal !== undefined) room.autoDeal = !!autoDeal;
+    if (handDelay !== undefined) room.handDelay = Math.max(3, Math.min(60, parseInt(handDelay) || 10));
+    broadcastState(room);
+  });
+
   socket.on('removePlayer', ({ targetPlayerId }) => {
     const sp = socketToPlayer.get(socket.id);
     if (!sp) return;
@@ -236,6 +246,26 @@ io.on('connection', (socket) => {
     if (next.type === 'handComplete') {
       io.to(sp.roomId).emit('handComplete', next);
       broadcastState(room);
+      // Auto-deal next hand if enabled
+      if (room.autoDeal) {
+        const delay = (room.handDelay || 10) * 1000;
+        setTimeout(() => {
+          if (room.autoDeal && room.canStartHand()) {
+            const result = room.startHand();
+            if (!result.error) {
+              io.to(room.roomId).emit('handStarted', {
+                handNumber: room.handNumber,
+                isBombPot: result.isBombPot,
+                isOmaha: result.isOmaha,
+                board: result.board || [],
+                phase: result.phase
+              });
+              broadcastState(room);
+              emitTurnNotification(room);
+            }
+          }
+        }, delay);
+      }
     } else if (next.type === 'newStreet') {
       io.to(sp.roomId).emit('newStreet', { phase: next.phase, board: next.board });
       broadcastState(room);

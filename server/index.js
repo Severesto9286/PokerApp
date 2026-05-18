@@ -79,6 +79,16 @@ io.on('connection', (socket) => {
     const room = rooms.get(roomId);
     if (!room) return socket.emit('error', { message: 'Room not found' });
 
+    // Allow pending players to identify so we can send them joinApproved
+    const pending = room.pendingJoins.find(p => p.id === playerId);
+    if (pending) {
+      pending.socketId = socket.id;
+      socketToPlayer.set(socket.id, { roomId, playerId, pending: true });
+      socket.join(roomId);
+      socket.emit('identified', { playerId, isHost: false, pending: true });
+      return;
+    }
+
     const player = room.getPlayer(playerId);
     if (!player) return socket.emit('error', { message: 'Player not found in room' });
 
@@ -106,13 +116,19 @@ io.on('connection', (socket) => {
     const player = room.approveJoin(pendingId, stackSize || 1000);
     if (!player) return socket.emit('error', { message: 'Could not approve player' });
 
-    // Notify the approved player
+    // Find the pending player's socket and upgrade them
     const pendingSocket = [...io.sockets.sockets.values()].find(s => {
       const ssp = socketToPlayer.get(s.id);
       return ssp && ssp.roomId === room.roomId && ssp.playerId === pendingId;
     });
     if (pendingSocket) {
+      player.socketId = pendingSocket.id;
+      player.connected = true;
+      socketToPlayer.set(pendingSocket.id, { roomId: room.roomId, playerId: pendingId });
       pendingSocket.emit('joinApproved', { stackSize: player.stack });
+      setTimeout(() => {
+        pendingSocket.emit('gameState', room.publicState(pendingId));
+      }, 300);
     }
 
     io.to(sp.roomId).emit('playerJoined', { playerId: player.id, name: player.name, stack: player.stack });

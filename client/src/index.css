@@ -300,15 +300,15 @@ input[type="range"] {
 
 /* Extra large for player's own hole cards */
 .card.card-xl {
-  width: 110px;
-  height: 158px;
-  border-radius: 10px;
-  padding: 9px 10px;
+  width: 86px;
+  height: 124px;
+  border-radius: 9px;
+  padding: 7px 8px;
 }
 
-.card-xl .card-rank { font-size: 1.6rem; }
-.card-xl .card-suit-center { font-size: 2.8rem; }
-.card-xl .card-rank-bottom { font-size: 1.6rem; }
+.card-xl .card-rank { font-size: 1.3rem; }
+.card-xl .card-suit-center { font-size: 2.2rem; }
+.card-xl .card-rank-bottom { font-size: 1.3rem; }
 
 .card-back {
   background: #1a2e5a;
@@ -486,16 +486,113 @@ input[type="range"] {
 .seat-pos-5 { bottom: -30px; right: -40px; }
 
 
+
+/* ─── All-In Dramatic Reveal ─────────────────────────────────────── */
+.allin-reveal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.82);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2rem;
+  backdrop-filter: blur(3px);
+  animation: overlayFadeIn 0.4s ease-out;
+}
+
+@keyframes overlayFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.allin-reveal-title {
+  font-family: 'Playfair Display', serif;
+  font-size: 2.2rem;
+  font-weight: 700;
+  color: #e74c3c;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  text-shadow: 0 0 30px rgba(231,76,60,0.6), 0 2px 8px rgba(0,0,0,0.8);
+  animation: allInPulse 0.6s ease-out;
+}
+
+@keyframes allInPulse {
+  0% { transform: scale(0.4); opacity: 0; }
+  60% { transform: scale(1.15); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.allin-reveal-players {
+  display: flex;
+  gap: 3rem;
+  align-items: flex-start;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.allin-reveal-player {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.allin-reveal-name {
+  font-family: 'Playfair Display', serif;
+  font-size: 1.1rem;
+  color: var(--gold);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.allin-reveal-cards {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.allin-card-wrapper {
+  animation: allinCardReveal var(--delay, 0.5s) cubic-bezier(0.23, 1, 0.32, 1) forwards;
+  opacity: 0;
+  transform: translateY(40px) rotateY(90deg) scale(0.8);
+}
+
+@keyframes allinCardReveal {
+  0%   { opacity: 0; transform: translateY(40px) rotateY(90deg) scale(0.8); }
+  40%  { opacity: 1; transform: translateY(-8px) rotateY(20deg) scale(1.05); }
+  70%  { transform: translateY(4px) rotateY(-5deg) scale(1.02); }
+  100% { opacity: 1; transform: translateY(0) rotateY(0deg) scale(1); }
+}
+
+.allin-equity-bar {
+  display: flex;
+  width: 100%;
+  max-width: 320px;
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: rgba(255,255,255,0.1);
+  margin-top: 0.5rem;
+}
+
+.allin-equity-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 1.5s ease-out;
+}
+
+
 /* ─── Hole Card Tray (bottom of screen) ──────────────────────────── */
 .hole-card-tray {
   position: absolute;
-  bottom: 5.5rem;
+  bottom: 1rem;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.3rem;
   z-index: 15;
   pointer-events: none;
 }
@@ -525,7 +622,7 @@ input[type="range"] {
 /* ─── Action Panel ───────────────────────────────────────────────── */
 .action-panel {
   position: absolute;
-  bottom: 12.5rem;
+  bottom: 11rem;
   left: 50%;
   transform: translateX(-50%);
   display: flex;

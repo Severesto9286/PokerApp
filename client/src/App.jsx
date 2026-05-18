@@ -8,6 +8,7 @@ import ActionPanel from './components/ActionPanel.jsx';
 import HandResult from './components/HandResult.jsx';
 import HostControls from './components/HostControls.jsx';
 import HandHistory from './components/HandHistory.jsx';
+import AllInReveal from './components/AllInReveal.jsx';
 import { useSocket } from './hooks/useSocket.js';
 
 const API = import.meta.env.VITE_SERVER_URL || '';
@@ -186,6 +187,7 @@ function GameTable({ session }) {
   const prevBoardLen = useRef(0);
   const prevPhase = useRef(null);
   const [newCardIndices, setNewCardIndices] = useState(new Set()); // board indices that are 'new' this street
+  const [allInRevealPlayers, setAllInRevealPlayers] = useState(null);
 
   const handleEvent = useCallback(({ type, data }) => {
     switch (type) {
@@ -221,6 +223,13 @@ function GameTable({ session }) {
           else if (a === 'allIn') Audio.playAllIn();
           else if (a === 'raise' || a === 'bet') Audio.playChipRaise();
           else if (a === 'call') Audio.playChipBet();
+        }
+        // Trigger dramatic reveal when someone goes all-in
+        if (data?.action === 'allIn') {
+          // Defer slightly so gameState update arrives first
+          setTimeout(() => {
+            setAllInRevealPlayers('pending');
+          }, 300);
         }
         break;
       case 'handComplete':
@@ -312,6 +321,20 @@ function GameTable({ session }) {
     if (settings.musicEnabled) Audio.startMusic();
     return () => Audio.stopMusic();
   }, []);
+
+  // Resolve all-in reveal once game state has fresh data
+  useEffect(() => {
+    if (allInRevealPlayers === 'pending' && gameState) {
+      const allInWithCards = gameState.players?.filter(p =>
+        p.isAllIn && !p.folded && p.holeCards && p.holeCards.length > 0
+      );
+      if (allInWithCards && allInWithCards.length >= 1) {
+        setAllInRevealPlayers(allInWithCards);
+      } else {
+        setAllInRevealPlayers(null);
+      }
+    }
+  }, [gameState, allInRevealPlayers]);
 
   // Sync volume changes
   useEffect(() => { Audio.setMasterVolume(settings.masterVolume); }, [settings.masterVolume]);
@@ -473,6 +496,14 @@ function GameTable({ session }) {
               </div>
             )}
           </div>
+        )}
+
+        {/* All-In Dramatic Reveal */}
+        {allInRevealPlayers && allInRevealPlayers !== 'pending' && (
+          <AllInReveal
+            players={allInRevealPlayers}
+            onDone={() => setAllInRevealPlayers(null)}
+          />
         )}
 
         {/* Run It Twice overlay */}

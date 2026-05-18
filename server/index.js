@@ -258,6 +258,7 @@ io.on('connection', (socket) => {
                 isBombPot: result.isBombPot,
                 isOmaha: result.isOmaha,
                 board: result.board || [],
+                board2: result.board2 || null,
                 phase: result.phase
               });
               broadcastState(room);

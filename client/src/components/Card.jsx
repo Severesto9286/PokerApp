@@ -1,38 +1,37 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 const SUIT_SYMBOLS = { s: '♠', h: '♥', d: '♦', c: '♣' };
 const RED_SUITS = new Set(['h', 'd']);
 
-export default function Card({ card, size = 'md', highlight = false, isNew = false, faceDown = false, animationSpeed = 1, animate = true }) {
-  const [flipped, setFlipped] = useState(false);
-  const [showFace, setShowFace] = useState(!isNew || faceDown);
+export default function Card({ card, size = 'md', highlight = false, isNew = false, faceDown = false, animationSpeed = 1, animate = true, dealDelay = 0 }) {
+  // Track whether this card has been revealed yet
+  const [revealed, setRevealed] = useState(!isNew || faceDown || !animate);
+  const prevCard = useRef(card);
 
-  const duration = animate ? Math.round(300 / animationSpeed) : 0;
-  const halfDuration = duration / 2;
+  const duration = animate ? Math.round(280 / Math.max(animationSpeed, 0.1)) : 0;
 
   useEffect(() => {
-    if (isNew && !faceDown && animate && card) {
-      setFlipped(false);
-      setShowFace(false);
-      const t1 = setTimeout(() => setFlipped(true), 60);
-      const t2 = setTimeout(() => setShowFace(true), 60 + halfDuration);
-      return () => { clearTimeout(t1); clearTimeout(t2); };
+    // Only animate if isNew AND animate AND we have a real card AND card just changed
+    if (isNew && animate && card && !faceDown) {
+      setRevealed(false);
+      const t = setTimeout(() => setRevealed(true), dealDelay + 40);
+      return () => clearTimeout(t);
     } else {
-      setShowFace(!faceDown);
-      setFlipped(false);
+      setRevealed(!faceDown && !!card);
     }
-  }, [card, isNew, faceDown, animate]);
+    prevCard.current = card;
+  }, [card, isNew, faceDown, animate, dealDelay]);
 
   const sizeClass = size === 'sm' ? 'card-sm' : size === 'lg' ? 'card-lg' : size === 'xl' ? 'card-xl' : '';
   const highlightClass = highlight ? 'card-highlight' : '';
 
-  const flipStyle = animate ? {
-    transition: `transform ${halfDuration}ms ease-in-out`,
-    transform: flipped ? 'rotateY(0deg)' : 'rotateY(90deg)',
-    transformStyle: 'preserve-3d',
+  // Flip style: cards start rotated 90deg (edge-on = invisible), rotate to 0 when revealed
+  const flipStyle = (animate && isNew) ? {
+    transition: revealed ? `transform ${duration}ms ease-out` : 'none',
+    transform: revealed ? 'rotateY(0deg)' : 'rotateY(90deg)',
   } : {};
 
-  if (!showFace || faceDown || !card) {
+  if (!revealed || faceDown || !card) {
     return <div className={`card card-back ${sizeClass}`} style={flipStyle} />;
   }
 

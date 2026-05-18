@@ -185,6 +185,7 @@ function GameTable({ session }) {
   const { settings, update: updateSetting } = useSettings();
   const prevBoardLen = useRef(0);
   const prevPhase = useRef(null);
+  const [newCardIndices, setNewCardIndices] = useState(new Set()); // board indices that are 'new' this street
 
   const handleEvent = useCallback(({ type, data }) => {
     switch (type) {
@@ -201,6 +202,13 @@ function GameTable({ session }) {
         if (settings.sfxEnabled) {
           if (data.isBombPot) Audio.playBombPot();
           else Audio.playCardDeal();
+        }
+        if (data.board?.length > 0) {
+          // Bomb pot: flop already dealt, mark all as new
+          setNewCardIndices(new Set([0,1,2,3,4,5,6,7,8,9]));
+          setTimeout(() => setNewCardIndices(new Set()), 1200);
+        } else {
+          setNewCardIndices(new Set());
         }
         prevBoardLen.current = data.board?.length || 0;
         prevPhase.current = data.phase;
@@ -237,12 +245,20 @@ function GameTable({ session }) {
         setRunItTwiceOffer(data);
         setMyVoteRIT(null);
         break;
-      case 'newStreet':
+      case 'newStreet': {
         setRunItTwiceOffer(null);
         if (settings.sfxEnabled) Audio.playNewStreet();
-        prevBoardLen.current = data?.board?.length || 0;
+        const oldLen = prevBoardLen.current;
+        const newLen = data?.board?.length || 0;
+        const newIdxs = new Set();
+        for (let i = oldLen; i < newLen; i++) newIdxs.add(i);
+        setNewCardIndices(newIdxs);
+        prevBoardLen.current = newLen;
         prevPhase.current = data?.phase;
+        // Clear new flags after animation completes
+        setTimeout(() => setNewCardIndices(new Set()), 1200);
         break;
+      }
       case 'yourTurn':
         if (data.playerId === playerId && settings.sfxEnabled) Audio.playYourTurn();
         if (data.playerId === playerId) {
@@ -364,19 +380,44 @@ function GameTable({ session }) {
                 </div>
                 <div className="board-cards">
                   {gameState.board.slice(0, 3).map((c, i) => (
-                    <Card key={`b${i}`} card={c} size="md"
-                      isNew={gameState.board.length === 3}
+                    <Card key={`board-a-${i}`} card={c} size="md"
+                      isNew={newCardIndices.has(i)}
+                      dealDelay={i * 80}
                       animate={settings.animationsEnabled}
                       animationSpeed={settings.animationSpeed} />
                   ))}
                   {gameState.board.length > 3 && <div className="board-divider" />}
                   {gameState.board.slice(3).map((c, i) => (
-                    <Card key={`t${i}`} card={c} size="md"
-                      isNew
+                    <Card key={`board-b-${i}`} card={c} size="md"
+                      isNew={newCardIndices.has(i + 3)}
+                      dealDelay={0}
                       animate={settings.animationsEnabled}
                       animationSpeed={settings.animationSpeed} />
                   ))}
                 </div>
+                {/* Second board for PLO bomb pots */}
+                {gameState.board2 && gameState.isBombPot && (
+                  <div style={{ marginTop: '0.5rem' }}>
+                    <div className="board-label" style={{ marginBottom: '4px' }}>Board 2</div>
+                    <div className="board-cards">
+                      {gameState.board2.slice(0, 3).map((c, i) => (
+                        <Card key={`board2-a-${i}`} card={c} size="md"
+                          isNew={newCardIndices.has(i + 10)}
+                          dealDelay={i * 80}
+                          animate={settings.animationsEnabled}
+                          animationSpeed={settings.animationSpeed} />
+                      ))}
+                      {gameState.board2.length > 3 && <div className="board-divider" />}
+                      {gameState.board2.slice(3).map((c, i) => (
+                        <Card key={`board2-b-${i}`} card={c} size="md"
+                          isNew={newCardIndices.has(i + 13)}
+                          dealDelay={0}
+                          animate={settings.animationsEnabled}
+                          animationSpeed={settings.animationSpeed} />
+                      ))}
+                    </div>
+                  </div>
+                )}
               </>
             )}
 
@@ -416,10 +457,11 @@ function GameTable({ session }) {
             <div className="hole-card-tray-cards">
               {me.holeCards.map((c, i) => (
                 <Card
-                  key={i}
+                  key={`hole-${i}`}
                   card={c}
                   size="xl"
-                  isNew={i === me.holeCards.length - 1}
+                  isNew={true}
+                  dealDelay={i * 120}
                   animate={settings.animationsEnabled}
                   animationSpeed={settings.animationSpeed}
                 />

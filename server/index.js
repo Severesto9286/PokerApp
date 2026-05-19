@@ -16,12 +16,11 @@ const io = new Server(httpServer, {
   cors: { origin: '*', methods: ['GET', 'POST'] }
 });
 
-const rooms = new Map(); // roomId → GameRoom
-const socketToPlayer = new Map(); // socketId → { roomId, playerId }
+const rooms = new Map();
+const socketToPlayer = new Map();
 
-// ─── REST endpoints ──────────────────────────────────────────────────────────
+// ─── REST endpoints ───────────────────────────────────────────────────────────
 
-// Create room (host)
 app.post('/api/rooms', (req, res) => {
   const { hostName } = req.body;
   if (!hostName) return res.status(400).json({ error: 'hostName required' });
@@ -31,14 +30,12 @@ app.post('/api/rooms', (req, res) => {
   const room = new GameRoom(roomId, hostId);
   rooms.set(roomId, room);
 
-  // Auto-approve host
   room.addPendingJoin(hostId, hostName, null);
-  room.approveJoin(hostId, 1000); // Default stack, host can change
+  room.approveJoin(hostId, 1000);
 
   res.json({ roomId, playerId: hostId, isHost: true });
 });
 
-// Join room request
 app.post('/api/rooms/:roomId/join', (req, res) => {
   const room = rooms.get(req.params.roomId);
   if (!room) return res.status(404).json({ error: 'Room not found' });
@@ -51,7 +48,6 @@ app.post('/api/rooms/:roomId/join', (req, res) => {
   const added = room.addPendingJoin(playerId, playerName, null);
   if (!added) return res.status(400).json({ error: 'Already pending or in room' });
 
-  // Notify host
   const hostSocket = [...io.sockets.sockets.values()].find(s => {
     const sp = socketToPlayer.get(s.id);
     return sp && sp.roomId === room.roomId && sp.playerId === room.hostId;
@@ -63,14 +59,15 @@ app.post('/api/rooms/:roomId/join', (req, res) => {
   res.json({ playerId, roomId: room.roomId, status: 'pending' });
 });
 
-// Room info
 app.get('/api/rooms/:roomId', (req, res) => {
   const room = rooms.get(req.params.roomId);
   if (!room) return res.status(404).json({ error: 'Room not found' });
   res.json({ roomId: room.roomId, playerCount: room.players.length, phase: room.phase });
 });
 
-// ─── Socket.io ──────────────────────────────────────────────────────────────
+app.get('/health', (_, res) => res.json({ ok: true, rooms: rooms.size }));
+
+// ─── Socket.io ────────────────────────────────────────────────────────────────
 
 io.on('connection', (socket) => {
   console.log('Socket connected:', socket.id);
@@ -79,7 +76,6 @@ io.on('connection', (socket) => {
     const room = rooms.get(roomId);
     if (!room) return socket.emit('error', { message: 'Room not found' });
 
-    // Allow pending players to identify so we can send them joinApproved
     const pending = room.pendingJoins.find(p => p.id === playerId);
     if (pending) {
       pending.socketId = socket.id;
@@ -100,7 +96,6 @@ io.on('connection', (socket) => {
     socket.emit('identified', { playerId, isHost: playerId === room.hostId });
     socket.emit('gameState', room.publicState(playerId));
 
-    // Notify others
     socket.to(roomId).emit('playerConnected', { playerId, name: player.name });
     broadcastState(room);
   });
@@ -116,7 +111,6 @@ io.on('connection', (socket) => {
     const player = room.approveJoin(pendingId, stackSize || 1000);
     if (!player) return socket.emit('error', { message: 'Could not approve player' });
 
-    // Find the pending player's socket and upgrade them
     const pendingSocket = [...io.sockets.sockets.values()].find(s => {
       const ssp = socketToPlayer.get(s.id);
       return ssp && ssp.roomId === room.roomId && ssp.playerId === pendingId;
@@ -217,17 +211,15 @@ io.on('connection', (socket) => {
       isBombPot: result.isBombPot,
       isOmaha: result.isOmaha,
       board: result.board || [],
+      board2: result.board2 || null,
       phase: result.phase
     });
 
     broadcastState(room);
-
-    if (result.phase !== 'waiting') {
-      emitTurnNotification(room);
-    }
+    emitTurnNotification(room);
   });
 
-  // ── Player Actions ────────────────────────────────────────────────────────
+  // ── Player Actions ─────────────────────────────────────────────────────────
 
   socket.on('action', ({ action, amount }) => {
     const sp = socketToPlayer.get(socket.id);
@@ -243,23 +235,21 @@ io.on('connection', (socket) => {
     const next = result.next;
     if (!next) return;
 
-    if (next.type === 'handComplete') {
-      io.to(sp.roomId).emit('handComplete', next);
-      broadcastState(room);
-      // Auto-deal next hand if enabled
+    // Helper: auto-deal next hand after a delay
+    const tryAutoDeal = () => {
       if (room.autoDeal) {
         const delay = (room.handDelay || 10) * 1000;
         setTimeout(() => {
           if (room.autoDeal && room.canStartHand()) {
-            const result = room.startHand();
-            if (!result.error) {
+            const r = room.startHand();
+            if (!r.error) {
               io.to(room.roomId).emit('handStarted', {
                 handNumber: room.handNumber,
-                isBombPot: result.isBombPot,
-                isOmaha: result.isOmaha,
-                board: result.board || [],
-                board2: result.board2 || null,
-                phase: result.phase
+                isBombPot: r.isBombPot,
+                isOmaha: r.isOmaha,
+                board: r.board || [],
+                board2: r.board2 || null,
+                phase: r.phase
               });
               broadcastState(room);
               emitTurnNotification(room);
@@ -267,13 +257,50 @@ io.on('connection', (socket) => {
           }
         }, delay);
       }
+    };
+
+    if (next.type === 'handComplete') {
+      io.to(sp.roomId).emit('handComplete', next);
+      broadcastState(room);
+      tryAutoDeal();
+
+    } else if (next.type === 'allInRunout') {
+      // Emit streets one at a time with 1.8s delay between each for drama
+      const STREET_DELAY = 1800;
+      broadcastState(room);
+
+      next.streets.forEach((street, i) => {
+        setTimeout(() => {
+          io.to(sp.roomId).emit('newStreet', {
+            phase: street.phase,
+            board: street.board,
+            board2: street.board2,
+          });
+          broadcastState(room);
+        }, i * STREET_DELAY);
+      });
+
+      // Emit handComplete after all streets are shown
+      const finalDelay = next.streets.length * STREET_DELAY + 1400;
+      setTimeout(() => {
+        io.to(sp.roomId).emit('handComplete', next.finalResult);
+        broadcastState(room);
+        tryAutoDeal();
+      }, finalDelay);
+
     } else if (next.type === 'newStreet') {
-      io.to(sp.roomId).emit('newStreet', { phase: next.phase, board: next.board });
+      io.to(sp.roomId).emit('newStreet', {
+        phase: next.phase,
+        board: next.board,
+        board2: next.board2 || null,
+      });
       broadcastState(room);
       emitTurnNotification(room);
+
     } else if (next.type === 'runItTwiceOffer') {
       io.to(sp.roomId).emit('runItTwiceOffer', next);
       broadcastState(room);
+
     } else if (next.type === 'action') {
       broadcastState(room);
       emitTurnNotification(room);
@@ -295,7 +322,11 @@ io.on('connection', (socket) => {
     if (result.type === 'handComplete') {
       io.to(sp.roomId).emit('handComplete', result);
     } else if (result.type === 'newStreet') {
-      io.to(sp.roomId).emit('newStreet', { phase: result.phase, board: result.board });
+      io.to(sp.roomId).emit('newStreet', {
+        phase: result.phase,
+        board: result.board,
+        board2: result.board2 || null,
+      });
       emitTurnNotification(room);
     }
     broadcastState(room);
@@ -351,13 +382,13 @@ io.on('connection', (socket) => {
   });
 });
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
 function broadcastState(room) {
   for (const player of room.players) {
     if (!player.socketId) continue;
     const sock = io.sockets.sockets.get(player.socketId);
-    if (sock) {
-      sock.emit('gameState', room.publicState(player.id));
-    }
+    if (sock) sock.emit('gameState', room.publicState(player.id));
   }
 }
 
@@ -368,8 +399,7 @@ function emitTurnNotification(room) {
   io.to(room.roomId).emit('yourTurn', { playerId: currentPlayer.id });
 }
 
-// ─── Health check ────────────────────────────────────────────────────────────
-app.get('/health', (_, res) => res.json({ ok: true, rooms: rooms.size }));
+// ─── Start ────────────────────────────────────────────────────────────────────
 
 const PORT = process.env.PORT || 3001;
 httpServer.listen(PORT, () => console.log(`Poker server running on port ${PORT}`));

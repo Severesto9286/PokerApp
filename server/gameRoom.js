@@ -886,4 +886,4 @@ class GameRoom {
   }
 }
 
-module.exports = GameRoom;
+module.exports = { GameRoom };

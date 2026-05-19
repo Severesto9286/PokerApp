@@ -8,7 +8,6 @@ import ActionPanel from './components/ActionPanel.jsx';
 import HandResult from './components/HandResult.jsx';
 import HostControls from './components/HostControls.jsx';
 import HandHistory from './components/HandHistory.jsx';
-import AllInReveal from './components/AllInReveal.jsx';
 import { useSocket } from './hooks/useSocket.js';
 
 const API = import.meta.env.VITE_SERVER_URL || '';
@@ -43,8 +42,6 @@ function quickHandName(holeCards, board) {
   } catch { return null; }
 }
 
-
-
 // ─── Toast system ─────────────────────────────────────────────────────────────
 function useToasts() {
   const [toasts, setToasts] = useState([]);
@@ -58,7 +55,7 @@ function useToasts() {
 
 // ─── Lobby ────────────────────────────────────────────────────────────────────
 function Lobby({ onJoin }) {
-  const [mode, setMode] = useState(null); // 'create' | 'join'
+  const [mode, setMode] = useState(null);
   const [name, setName] = useState('');
   const [roomCode, setRoomCode] = useState('');
   const [loading, setLoading] = useState(false);
@@ -100,7 +97,7 @@ function Lobby({ onJoin }) {
   return (
     <div className="lobby">
       <div className="lobby-card">
-        <h1 className="lobby-title">Felt & Friends</h1>
+        <h1 className="lobby-title">Felt &amp; Friends</h1>
         <p className="lobby-subtitle">Private poker with fake money</p>
 
         {!mode && (
@@ -186,8 +183,7 @@ function GameTable({ session }) {
   const { settings, update: updateSetting } = useSettings();
   const prevBoardLen = useRef(0);
   const prevPhase = useRef(null);
-  const [newCardIndices, setNewCardIndices] = useState(new Set()); // board indices that are 'new' this street
-  const [allInRevealPlayers, setAllInRevealPlayers] = useState(null);
+  const [newCardIndices, setNewCardIndices] = useState(new Set());
 
   const handleEvent = useCallback(({ type, data }) => {
     switch (type) {
@@ -206,7 +202,6 @@ function GameTable({ session }) {
           else Audio.playCardDeal();
         }
         if (data.board?.length > 0) {
-          // Bomb pot: flop already dealt, mark all as new
           setNewCardIndices(new Set([0,1,2,3,4,5,6,7,8,9]));
           setTimeout(() => setNewCardIndices(new Set()), 1200);
         } else {
@@ -224,20 +219,12 @@ function GameTable({ session }) {
           else if (a === 'raise' || a === 'bet') Audio.playChipRaise();
           else if (a === 'call') Audio.playChipBet();
         }
-        // Trigger dramatic reveal when someone goes all-in
-        if (data?.action === 'allIn') {
-          // Defer slightly so gameState update arrives first
-          setTimeout(() => {
-            setAllInRevealPlayers('pending');
-          }, 300);
-        }
         break;
       case 'handComplete':
         setHandResult(data);
         setRunItTwiceOffer(null);
         if (settings.sfxEnabled) Audio.playWin();
         if (settings.sfxEnabled) Audio.playShowdown();
-        // Start auto-deal countdown display
         if (gameState?.autoDeal) {
           const delay = gameState.handDelay || 10;
           setAutoDealCountdown(delay);
@@ -264,7 +251,6 @@ function GameTable({ session }) {
         setNewCardIndices(newIdxs);
         prevBoardLen.current = newLen;
         prevPhase.current = data?.phase;
-        // Clear new flags after animation completes
         setTimeout(() => setNewCardIndices(new Set()), 1200);
         break;
       }
@@ -306,7 +292,6 @@ function GameTable({ session }) {
         addToast(`${data.name} connected`);
         break;
       case 'playerDisconnected':
-        // silent
         break;
     }
   }, [playerId, isHost]);
@@ -321,20 +306,6 @@ function GameTable({ session }) {
     if (settings.musicEnabled) Audio.startMusic();
     return () => Audio.stopMusic();
   }, []);
-
-  // Resolve all-in reveal once game state has fresh data
-  useEffect(() => {
-    if (allInRevealPlayers === 'pending' && gameState) {
-      const allInWithCards = gameState.players?.filter(p =>
-        p.isAllIn && !p.folded && p.holeCards && p.holeCards.length > 0
-      );
-      if (allInWithCards && allInWithCards.length >= 1) {
-        setAllInRevealPlayers(allInWithCards);
-      } else {
-        setAllInRevealPlayers(null);
-      }
-    }
-  }, [gameState, allInRevealPlayers]);
 
   // Sync volume changes
   useEffect(() => { Audio.setMasterVolume(settings.masterVolume); }, [settings.masterVolume]);
@@ -392,7 +363,7 @@ function GameTable({ session }) {
           ))}
 
           {/* Board */}
-<div className="board-area">
+          <div className="board-area">
             {gameState?.isBombPot && (
               <div className="bomb-pot-banner">💣 Bomb Pot · PLO</div>
             )}
@@ -430,6 +401,7 @@ function GameTable({ session }) {
                         animationSpeed={settings.animationSpeed} />
                     ))}
                   </div>
+                  {/* Second board for PLO bomb pots */}
                   {gameState.board2 && gameState.isBombPot && (
                     <div style={{ marginTop: '0.5rem' }}>
                       <div className="board-label" style={{ marginBottom: '4px' }}>Board 2</div>
@@ -473,19 +445,20 @@ function GameTable({ session }) {
         {autoDealCountdown !== null && (
           <div style={{
             position: 'absolute', top: '1rem', left: '50%', transform: 'translateX(-50%)',
-            background: 'rgba(10,22,14,0.92)', border: '1px solid rgba(201,168,76,0.3)',
-            borderRadius: '24px', padding: '0.4rem 1.25rem',
+            background: 'rgba(8,11,14,0.95)', border: '1px solid var(--border-teal)',
+            borderRadius: '4px', padding: '0.4rem 1.25rem',
             fontSize: '0.85rem', color: 'var(--text-secondary)',
-            zIndex: 25, display: 'flex', alignItems: 'center', gap: '0.5rem'
+            zIndex: 25, display: 'flex', alignItems: 'center', gap: '0.5rem',
+            fontFamily: 'var(--font-ui)', letterSpacing: '0.06em', textTransform: 'uppercase'
           }}>
-            <span style={{ color: 'var(--gold)', fontFamily: 'DM Mono', fontWeight: '600', fontSize: '1.1rem' }}>
+            <span style={{ color: 'var(--teal)', fontFamily: 'var(--font-data)', fontWeight: '600', fontSize: '1.1rem' }}>
               {autoDealCountdown}
             </span>
             Next hand dealing...
           </div>
         )}
 
-        {/* Hole Card Tray - my cards displayed large at bottom */}
+        {/* Hole Card Tray */}
         {me && me.holeCards && me.holeCards.length > 0 && (
           <div className="hole-card-tray">
             <div className="hole-card-tray-label">Your Hand</div>
@@ -510,11 +483,13 @@ function GameTable({ session }) {
           </div>
         )}
 
-        {/* All-In Dramatic Reveal */}
-        {allInRevealPlayers && allInRevealPlayers !== 'pending' && (
-          <AllInReveal
-            players={allInRevealPlayers}
-            onDone={() => setAllInRevealPlayers(null)}
+        {/* Hand Result */}
+        {handResult && (
+          <HandResult
+            result={handResult}
+            players={gameState?.players}
+            seatPositions={seatPositions}
+            onDismiss={() => setHandResult(null)}
           />
         )}
 
@@ -538,16 +513,6 @@ function GameTable({ session }) {
           </div>
         )}
 
-        {/* Hand Result */}
-        {handResult && (
-          <HandResult
-            result={handResult}
-            players={gameState?.players}
-            seatPositions={seatPositions}
-            onDismiss={() => setHandResult(null)}
-          />
-        )}
-
         {/* Action Panel */}
         {gameState?.phase !== 'waiting' && (
           <ActionPanel
@@ -558,7 +523,7 @@ function GameTable({ session }) {
           />
         )}
 
-        {/* Sit out toggle for non-host */}
+        {/* Sit out toggle */}
         <div style={{ position: 'absolute', top: '1rem', right: '1rem' }}>
           {me && (
             <button
@@ -725,7 +690,6 @@ export default function App() {
   const [approved, setApproved] = useState(session && !session.pending);
   const [pendingSession, setPendingSession] = useState(session?.pending ? session : null);
 
-  // If pending, we need a socket to listen for approval
   const handleEvent = useCallback(({ type, data }) => {
     if (type === 'joinApproved') {
       const full = { ...pendingSession, pending: false };

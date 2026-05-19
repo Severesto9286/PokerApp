@@ -10,12 +10,12 @@ class GameRoom {
   constructor(roomId, hostId) {
     this.roomId = roomId;
     this.hostId = hostId;
-    this.players = []; // { id, name, stack, seatIndex, connected, folded, holeCards, currentBet, totalBet, isAllIn, hasActed }
-    this.pendingJoins = []; // { id, name, socketId } awaiting host approval
+    this.players = [];
+    this.pendingJoins = [];
     this.phase = 'waiting';
     this.deck = [];
     this.board = [];
-    this.pots = []; // { amount, eligible[] }
+    this.pots = [];
     this.currentPot = 0;
     this.smallBlind = 10;
     this.bigBlind = 20;
@@ -24,7 +24,7 @@ class GameRoom {
     this.currentBet = 0;
     this.minRaise = 0;
     this.lastRaiser = null;
-    this.bombPotFrequency = 0.2; // 20% chance each hand
+    this.bombPotFrequency = 0.2;
     this.isBombPot = false;
     this.isOmaha = false;
     this.bombPotTwoBoards = false;
@@ -32,14 +32,13 @@ class GameRoom {
     this.runItTwiceOffered = false;
     this.runItTwiceVotes = {};
     this.allInPlayers = [];
-    this.board2 = null; // second runout
     this.actionTimer = null;
     this.handNumber = 0;
     this.chatHistory = [];
     this.lastAction = null;
     this.autoDeal = false;
     this.handDelay = 10;
-    this.handHistory = []; // last 50 hands
+    this.handHistory = [];
   }
 
   // ─── Player Management ──────────────────────────────────────────────────
@@ -71,7 +70,7 @@ class GameRoom {
       totalBet: 0,
       isAllIn: false,
       hasActed: false,
-      sitOut: false
+      sitOut: false,
     };
     this.players.push(player);
     return player;
@@ -81,27 +80,36 @@ class GameRoom {
     this.pendingJoins = this.pendingJoins.filter(p => p.id !== pendingId);
   }
 
+  removePlayer(playerId) {
+    this.players = this.players.filter(p => p.id !== playerId);
+  }
+
   _nextSeat() {
-    const taken = this.players.map(p => p.seatIndex);
-    for (let i = 0; i < 6; i++) { if (!taken.includes(i)) return i; }
+    const used = new Set(this.players.map(p => p.seatIndex));
+    for (let i = 0; i < 6; i++) if (!used.has(i)) return i;
     return this.players.length;
   }
 
-  removePlayer(id) {
-    this.players = this.players.filter(p => p.id !== id);
+  _nextActiveIndex(fromIndex) {
+    const active = this.players.filter(p => !p.sitOut && p.stack > 0);
+    return (fromIndex + 1) % active.length;
   }
 
-  // ─── Hand Lifecycle ─────────────────────────────────────────────────────
+  _activePlayers() {
+    return this.players.filter(p => p.holeCards && p.holeCards.length > 0);
+  }
+
   canStartHand() {
-    const active = this.players.filter(p => !p.sitOut && p.stack > 0);
-    return active.length >= 2 && this.phase === 'waiting';
+    const eligible = this.players.filter(p => !p.sitOut && p.stack > 0);
+    return eligible.length >= 2 && this.phase === 'waiting';
   }
 
+  // ─── Hand Start ──────────────────────────────────────────────────────────
   startHand() {
-    const active = this.players.filter(p => !p.sitOut && p.stack > 0);
-    if (active.length < 2) return { error: 'Need at least 2 players' };
+    if (!this.canStartHand()) return { error: 'Cannot start hand' };
 
     this.handNumber++;
+    this.deck = freshDeck();
     this.board = [];
     this.board2 = null;
     this.pots = [];
@@ -111,23 +119,10 @@ class GameRoom {
     this.lastRaiser = null;
     this.runItTwiceOffered = false;
     this.runItTwiceVotes = {};
-    this.allInPlayers = [];
     this.isBombPot = false;
     this.isOmaha = false;
     this.bombPotTwoBoards = false;
-    this.board2 = null;
-    this.lastAction = null;
 
-    // Determine if bomb pot
-    if (Math.random() < this.bombPotFrequency && active.length >= 2) {
-      this.isBombPot = true;
-      this.isOmaha = true;
-    }
-
-    // Advance dealer
-    this.dealerIndex = this._nextActiveIndex(this.dealerIndex);
-
-    // Reset player state
     for (const p of this.players) {
       p.folded = false;
       p.holeCards = [];
@@ -137,25 +132,20 @@ class GameRoom {
       p.hasActed = false;
     }
 
-    this.deck = freshDeck();
+    const activePlayers = this.players.filter(p => !p.sitOut && p.stack > 0);
+    this.dealerIndex = (this.dealerIndex + 1) % activePlayers.length;
 
-    if (this.isBombPot) {
-      return this._startBombPot(active);
+    const isBombPot = Math.random() < this.bombPotFrequency;
+    if (isBombPot) {
+      return this._startBombPot(activePlayers);
     } else {
-      return this._startHoldem(active);
+      return this._startNormalHand(activePlayers);
     }
   }
 
-  _startHoldem(active) {
-    // Post blinds
-    const sbIndex = this._nextActiveIndex(this.dealerIndex);
-    const bbIndex = this._nextActiveIndex(sbIndex);
-
-    const sbPlayer = active[sbIndex % active.length] || this.players[sbIndex % this.players.length];
-    const bbPlayer = active[bbIndex % active.length] || this.players[bbIndex % this.players.length];
-
-    // Find actual players by iterating active
-    const activePlayers = this.players.filter(p => !p.sitOut && p.stack > 0);
+  _startNormalHand(activePlayers) {
+    const sbIndex = (this.dealerIndex + 1) % activePlayers.length;
+    const bbIndex = (this.dealerIndex + 2) % activePlayers.length;
     const sbP = activePlayers[sbIndex % activePlayers.length];
     const bbP = activePlayers[bbIndex % activePlayers.length];
 
@@ -164,14 +154,12 @@ class GameRoom {
     this.currentBet = this.bigBlind;
     this.minRaise = this.bigBlind;
 
-    // Deal hole cards (2 per player)
     for (const p of activePlayers) {
       p.holeCards = [this.deck.pop(), this.deck.pop()];
     }
 
     this.phase = 'preflop';
 
-    // Action starts left of BB
     const utg = this._nextActiveIndex(bbIndex);
     this.actionIndex = utg % activePlayers.length;
     this.lastRaiser = bbP.id;
@@ -186,48 +174,44 @@ class GameRoom {
     };
   }
 
-  _startBombPot(active) {
-    // Everyone posts BB, goes to flop immediately, PLO rules, TWO full boards
-    const activePlayers = this.players.filter(p => !p.sitOut && p.stack > 0);
-    for (const p of activePlayers) {
-      this._postBlind(p.id, this.bigBlind);
-    }
-    this.currentPot = activePlayers.reduce((s, p) => s + p.totalBet, 0);
-    this.pots = [{ amount: this.currentPot, eligible: activePlayers.map(p => p.id) }];
+  _startBombPot(activePlayers) {
+    // Two-board PLO: starts PREFLOP (not flop), normal blind structure,
+    // 4 hole cards each, two boards dealt street by street
+    this.isBombPot = true;
+    this.isOmaha = true;
+    this.bombPotTwoBoards = true;
 
-    // Deal 4 hole cards (Omaha)
+    const sbIndex = (this.dealerIndex + 1) % activePlayers.length;
+    const bbIndex = (this.dealerIndex + 2) % activePlayers.length;
+    const sbP = activePlayers[sbIndex];
+    const bbP = activePlayers[bbIndex];
+
+    this._postBlind(sbP.id, this.smallBlind);
+    this._postBlind(bbP.id, this.bigBlind);
+    this.currentBet = this.bigBlind;
+    this.minRaise = this.bigBlind;
+
+    // Deal 4 hole cards each (Omaha)
     for (const p of activePlayers) {
       p.holeCards = [this.deck.pop(), this.deck.pop(), this.deck.pop(), this.deck.pop()];
     }
 
-    // Deal TWO full boards upfront (burn + 5 cards each)
-    this.deck.pop(); // burn board 1
-    this.board = [this.deck.pop(), this.deck.pop(), this.deck.pop(), this.deck.pop(), this.deck.pop()];
-    this.deck.pop(); // burn board 2
-    this.board2 = [this.deck.pop(), this.deck.pop(), this.deck.pop(), this.deck.pop(), this.deck.pop()];
+    this.phase = 'preflop';
 
-    this.phase = 'flop';
-    this.currentBet = 0;
-    this.minRaise = this.bigBlind;
-    this.bombPotTwoBoards = true;
-
-    // Reset bets for post-flop action
-    for (const p of activePlayers) {
-      p.currentBet = 0;
-      p.hasActed = false;
-    }
-
-    // Action starts left of dealer
-    const firstActor = this._nextActiveIndex(this.dealerIndex);
-    this.actionIndex = firstActor % activePlayers.length;
+    // Action starts left of BB (UTG)
+    const utg = this._nextActiveIndex(bbIndex);
+    this.actionIndex = utg % activePlayers.length;
+    this.lastRaiser = bbP.id;
 
     return {
       phase: this.phase,
       isBombPot: true,
       isOmaha: true,
-      board: this.board,
-      board2: this.board2,
-      dealer: activePlayers[this.dealerIndex % activePlayers.length]?.id
+      board: [],
+      board2: null,
+      dealer: activePlayers[this.dealerIndex % activePlayers.length]?.id,
+      sb: { id: sbP.id, amount: Math.min(this.smallBlind, sbP.stack + this.smallBlind) },
+      bb: { id: bbP.id, amount: Math.min(this.bigBlind, bbP.stack + this.bigBlind) }
     };
   }
 
@@ -283,7 +267,6 @@ class GameRoom {
         const raiseAmount = parseInt(amount);
         if (isNaN(raiseAmount)) return { error: 'Invalid amount' };
 
-        // Minimum raise: at least minRaise above current bet
         const minTotal = this.currentBet + this.minRaise;
         const totalBet = Math.min(raiseAmount, player.stack + player.currentBet);
         const actualIncrease = totalBet - player.currentBet;
@@ -302,7 +285,6 @@ class GameRoom {
         player.hasActed = true;
         this.lastRaiser = playerId;
 
-        // Reset hasActed for others
         for (const p of activePlayers) {
           if (p.id !== playerId && !p.folded && !p.isAllIn) p.hasActed = false;
         }
@@ -348,7 +330,6 @@ class GameRoom {
     const nonFolded = activePlayers.filter(p => !p.folded);
     const canAct = nonFolded.filter(p => !p.isAllIn);
 
-    // If only 1 or fewer players can act, or everyone has acted
     const bettingDone = canAct.every(p => p.hasActed && p.currentBet >= this.currentBet)
       || canAct.length === 0;
 
@@ -356,7 +337,6 @@ class GameRoom {
       return this._nextPhase(nonFolded);
     }
 
-    // Find next player to act
     let next = (this.actionIndex + 1) % activePlayers.length;
     let loops = 0;
     while (loops < activePlayers.length) {
@@ -373,15 +353,12 @@ class GameRoom {
   }
 
   _nextPhase(nonFolded) {
-    // Collect bets into pot
     this._collectBets();
 
-    // Check for everyone folded
     if (nonFolded.length === 1) {
       return this._endHand(false);
     }
 
-    // Check if all remaining are all-in → run out board
     const canAct = nonFolded.filter(p => !p.isAllIn);
     const allAllIn = canAct.length === 0 && nonFolded.length > 1;
 
@@ -390,33 +367,43 @@ class GameRoom {
 
     if (this.phase === 'river' || allAllIn) {
       if (allAllIn && this.phase !== 'river') {
-        // Run out remaining cards
         return this._runOutBoard(nonFolded);
       }
       return this._goToShowdown();
     }
 
-    // Advance phase
     const nextPhase = phases[currentPhaseIdx + 1];
     this.phase = nextPhase;
     this.currentBet = 0;
     this.minRaise = this.bigBlind;
     for (const p of this.players) { p.currentBet = 0; p.hasActed = false; }
 
-    // Deal community cards
+    // Deal community cards — for two-board PLO, deal both boards in parallel
     if (nextPhase === 'flop') {
       this.deck.pop(); // burn
       this.board = [this.deck.pop(), this.deck.pop(), this.deck.pop()];
+      if (this.bombPotTwoBoards) {
+        this.deck.pop(); // burn board 2
+        this.board2 = [this.deck.pop(), this.deck.pop(), this.deck.pop()];
+      }
     } else if (nextPhase === 'turn') {
       this.deck.pop();
       this.board.push(this.deck.pop());
+      if (this.bombPotTwoBoards) {
+        this.deck.pop();
+        this.board2.push(this.deck.pop());
+      }
     } else if (nextPhase === 'river') {
       this.deck.pop();
       this.board.push(this.deck.pop());
+      if (this.bombPotTwoBoards) {
+        this.deck.pop();
+        this.board2.push(this.deck.pop());
+      }
     }
 
-    // Offer run it twice if all-in and not all 5 cards dealt
-    if (allAllIn && this.board.length < 5) {
+    // Offer run it twice only for single-board hands
+    if (allAllIn && this.board.length < 5 && !this.bombPotTwoBoards) {
       this.runItTwiceOffered = true;
       this.runItTwiceVotes = {};
       for (const p of nonFolded) this.runItTwiceVotes[p.id] = null;
@@ -428,32 +415,39 @@ class GameRoom {
       };
     }
 
-    // Set action to first active player left of dealer
     this._resetActionForStreet(nonFolded);
 
-    return { type: 'newStreet', phase: nextPhase, board: this.board };
+    return { type: 'newStreet', phase: nextPhase, board: this.board, board2: this.board2 };
   }
 
   _runOutBoard(nonFolded) {
-    // Run remaining board cards if all-in
-    while (this.board.length < 5) {
-      this.deck.pop(); // burn
-      this.board.push(this.deck.pop());
+    // For two-board PLO: run out both boards completely
+    if (this.bombPotTwoBoards) {
+      while (this.board.length < 5) {
+        this.deck.pop();
+        this.board.push(this.deck.pop());
+        if (this.board2 && this.board2.length < 5) {
+          this.deck.pop();
+          this.board2.push(this.deck.pop());
+        }
+      }
+    } else {
+      while (this.board.length < 5) {
+        this.deck.pop();
+        this.board.push(this.deck.pop());
+      }
     }
 
-    // Offer run it twice before we ran it? No - check earlier. Go to showdown
     return this._goToShowdown();
   }
 
   _goToShowdown() {
     this.phase = 'showdown';
 
-    // Bomb pot with two boards: run both boards, split each pot
     if (this.bombPotTwoBoards && this.board2) {
       return this._goToShowdownTwoBoards();
     }
 
-    // Ensure board is complete
     while (this.board.length < 5) {
       this.deck.pop();
       this.board.push(this.deck.pop());
@@ -474,46 +468,80 @@ class GameRoom {
   }
 
   _goToShowdownTwoBoards() {
+    // Ensure both boards are complete (5 cards each)
+    while (this.board.length < 5) {
+      this.deck.pop();
+      this.board.push(this.deck.pop());
+    }
+    while (this.board2.length < 5) {
+      this.deck.pop();
+      this.board2.push(this.deck.pop());
+    }
+
     const playerData = this.players.map(p => ({
       id: p.id, totalBet: p.totalBet, folded: p.folded, holeCards: p.holeCards
     }));
 
-    const results1 = determineWinners(playerData, this.board, true);
-    const results2 = determineWinners(playerData, this.board2, true);
+    // Each pot is split in half: half goes to board1 winner, half to board2 winner
+    // We need to run determineWinners on halved pot amounts to avoid double-counting
+    const pots = calcSidePots(playerData);
 
     const winnerSummary = [];
     const showdownHands1 = {};
     const showdownHands2 = {};
 
-    const processHalf = (results, board, label, handStore) => {
-      for (const result of results) {
-        const halfPot = Math.floor(result.amount / 2);
-        const share = Math.floor(halfPot / result.winners.length);
-        const remainder = halfPot - share * result.winners.length;
-        result.winners.forEach((winnerId, idx) => {
+    for (const pot of pots) {
+      const halfAmount = Math.floor(pot.amount / 2);
+      const remainder = pot.amount - halfAmount * 2; // any odd chip
+
+      for (let boardIdx = 0; boardIdx < 2; boardIdx++) {
+        const board = boardIdx === 0 ? this.board : this.board2;
+        const label = boardIdx === 0 ? 'board1' : 'board2';
+        const amount = boardIdx === 0 ? halfAmount + remainder : halfAmount;
+
+        // Find winner for this board/pot
+        const eligible = pot.eligible.filter(id => {
+          const p = this.players.find(pl => pl.id === id);
+          return p && !p.folded && p.holeCards?.length > 0;
+        });
+
+        if (eligible.length === 0) continue;
+
+        const scores = {};
+        for (const id of eligible) {
+          const p = this.players.find(pl => pl.id === id);
+          try {
+            const result = bestOmahaHand(p.holeCards, board);
+            scores[id] = result.score;
+            const store = boardIdx === 0 ? showdownHands1 : showdownHands2;
+            store[id] = { ...result, holeCards: p.holeCards };
+          } catch (e) {
+            scores[id] = -1;
+          }
+        }
+
+        const bestScore = Math.max(...Object.values(scores));
+        const winners = eligible.filter(id => scores[id] === bestScore);
+        const shareEach = Math.floor(amount / winners.length);
+        const shareRemainder = amount - shareEach * winners.length;
+
+        winners.forEach((winnerId, idx) => {
           const player = this.getPlayer(winnerId);
           if (player) {
-            player.stack += share + (idx === 0 ? remainder : 0);
+            const win = shareEach + (idx === 0 ? shareRemainder : 0);
+            player.stack += win;
             winnerSummary.push({
               playerId: winnerId,
-              amount: share + (idx === 0 ? remainder : 0),
-              potIndex: result.potIndex,
+              amount: win,
               runout: label,
-              handName: result.handInfo?.[winnerId]?.name,
-              handCards: result.handInfo?.[winnerId]?.cards
+              handName: scores[winnerId] !== undefined
+                ? (boardIdx === 0 ? showdownHands1[winnerId]?.name : showdownHands2[winnerId]?.name)
+                : undefined,
             });
           }
         });
       }
-      const nf = this.players.filter(p => !p.folded && p.holeCards?.length > 0);
-      for (const p of nf) {
-        const best = bestOmahaHand(p.holeCards, board);
-        handStore[p.id] = { ...best, holeCards: p.holeCards };
-      }
-    };
-
-    processHalf(results1, this.board, 'board1', showdownHands1);
-    processHalf(results2, this.board2, 'board2', showdownHands2);
+    }
 
     const snapshot = {
       handNumber: this.handNumber,
@@ -559,7 +587,6 @@ class GameRoom {
     const nonFolded = this._activePlayers().filter(p => !p.folded);
 
     if (nonFolded.length === 1) {
-      // Uncontested - winner gets all pots
       const winner = nonFolded[0];
       const totalPot = this.pots.reduce((s, p) => s + p.amount, 0);
       winner.stack += totalPot;
@@ -570,7 +597,6 @@ class GameRoom {
         pots: this.pots,
         handNumber: this.handNumber
       };
-      // Save uncontested hand to history
       this.handHistory.unshift({
         handNumber: this.handNumber,
         board: this.board,
@@ -615,7 +641,6 @@ class GameRoom {
       });
     }
 
-    // Build showdown hands
     const showdownHands = {};
     const nonFolded = this.players.filter(p => !p.folded && p.holeCards?.length > 0);
     for (const p of nonFolded) {
@@ -634,149 +659,36 @@ class GameRoom {
       showdownHands,
       isOmaha: this.isOmaha,
       isBombPot: this.isBombPot,
+      ranItTwice: false,
       handNumber: this.handNumber
     };
 
-    // Save to hand history
-    const snapshot = {
+    this.handHistory.unshift({
       handNumber: this.handNumber,
       board,
-      board2: board2 || null,
+      board2,
       winners: winnerSummary,
       showdownHands,
       pots: JSON.parse(JSON.stringify(this.pots)),
       isOmaha: this.isOmaha,
       isBombPot: this.isBombPot,
-      ranItTwice: !!board2,
       playerSnapshots: this.players.map(p => ({
-        id: p.id,
-        name: p.name,
-        holeCards: p.holeCards || [],
-        folded: p.folded,
-        totalBet: p.totalBet,
-        stackAfter: p.stack
+        id: p.id, name: p.name, holeCards: p.holeCards || [],
+        folded: p.folded, totalBet: p.totalBet, stackAfter: p.stack
       })),
       timestamp: Date.now()
-    };
-    this.handHistory.unshift(snapshot);
+    });
     if (this.handHistory.length > 50) this.handHistory.pop();
 
     this.phase = 'waiting';
     return handResult;
   }
 
-  // Run it twice logic
-  voteRunItTwice(playerId, vote) {
-    if (!this.runItTwiceOffered) return null;
-    if (this.runItTwiceVotes[playerId] === undefined) return null;
-    this.runItTwiceVotes[playerId] = vote;
-
-    const votes = Object.values(this.runItTwiceVotes);
-    if (votes.some(v => v === null)) return { waiting: true }; // Not all voted
-
-    const allYes = votes.every(v => v === true);
-    this.runItTwiceOffered = false;
-
-    if (allYes) {
-      return this._executeRunItTwice();
-    } else {
-      // Run it once
-      return this._runItOnce();
-    }
-  }
-
-  _executeRunItTwice() {
-    const nonFolded = this.players.filter(p => !p.folded);
-    const { board1, board2 } = runItTwice(this.deck, this.board);
-
-    // Calculate winners for each board
-    const results1 = determineWinners(
-      this.players.map(p => ({ id: p.id, totalBet: p.totalBet, folded: p.folded, holeCards: p.holeCards })),
-      board1, this.isOmaha
-    );
-    const results2 = determineWinners(
-      this.players.map(p => ({ id: p.id, totalBet: p.totalBet, folded: p.folded, holeCards: p.holeCards })),
-      board2, this.isOmaha
-    );
-
-    // Split each pot: half to each runout
-    const winnerSummary = [];
-    const showdownHands1 = {};
-    const showdownHands2 = {};
-
-    const process = (results, board, half, label) => {
-      for (const result of results) {
-        const halfPot = Math.floor(result.amount * half);
-        const share = Math.floor(halfPot / result.winners.length);
-        const remainder = halfPot - share * result.winners.length;
-        result.winners.forEach((winnerId, idx) => {
-          const player = this.getPlayer(winnerId);
-          if (player) {
-            player.stack += share + (idx === 0 ? remainder : 0);
-            winnerSummary.push({
-              playerId: winnerId,
-              amount: share + (idx === 0 ? remainder : 0),
-              potIndex: result.potIndex,
-              runout: label,
-              handName: result.handInfo?.[winnerId]?.name,
-              handCards: result.handInfo?.[winnerId]?.cards
-            });
-          }
-        });
-      }
-      const nf = this.players.filter(p => !p.folded && p.holeCards?.length > 0);
-      const hands = {};
-      for (const p of nf) {
-        const best = this.isOmaha ? bestOmahaHand(p.holeCards, board) : bestHoldemHand(p.holeCards, board);
-        hands[p.id] = { ...best, holeCards: p.holeCards };
-      }
-      return hands;
-    };
-
-    const hands1 = process(results1, board1, 0.5, 'run1');
-    const hands2 = process(results2, board2, 0.5, 'run2');
-
-    this.phase = 'waiting';
-    return {
-      type: 'handComplete',
-      winners: winnerSummary,
-      board: board1,
-      board2,
-      ranItTwice: true,
-      pots: this.pots,
-      showdownHands: hands1,
-      showdownHands2: hands2,
-      isOmaha: this.isOmaha,
-      isBombPot: this.isBombPot,
-      handNumber: this.handNumber
-    };
-  }
-
-  _runItOnce() {
-    while (this.board.length < 5) {
-      this.deck.pop();
-      this.board.push(this.deck.pop());
-    }
-    return this._goToShowdown();
-  }
-
-  // ─── Helpers ─────────────────────────────────────────────────────────────
-  _activePlayers() {
-    return this.players.filter(p => !p.sitOut && p.holeCards?.length > 0);
-  }
-
-  _nextActiveIndex(fromIndex) {
-    const active = this.players.filter(p => !p.sitOut && p.stack > 0);
-    if (active.length === 0) return 0;
-    return (fromIndex + 1) % active.length;
-  }
-
   _collectBets() {
-    const total = this.players.reduce((s, p) => s + p.currentBet, 0);
-    this.currentPot += total;
-    for (const p of this.players) p.currentBet = 0;
-
-    // Recalculate side pots
+    for (const p of this.players) {
+      this.currentPot += p.currentBet;
+      p.currentBet = 0;
+    }
     const contributing = this.players.map(p => ({
       id: p.id,
       totalBet: p.totalBet,
@@ -792,7 +704,6 @@ class GameRoom {
     const active = this._activePlayers().filter(p => !p.folded && !p.isAllIn);
     if (active.length === 0) return;
 
-    // Post-flop: action starts left of dealer
     const dealerPlayer = this.players.filter(p => !p.sitOut && p.holeCards?.length > 0)[this.dealerIndex % this.players.filter(p => !p.sitOut && p.holeCards?.length > 0).length];
     let startIdx = 0;
     const allActive = this._activePlayers();
@@ -853,13 +764,126 @@ class GameRoom {
         sitOut: p.sitOut,
         isDealer: p.id === this.players.filter(pl => !pl.sitOut && pl.holeCards?.length > 0)[this.dealerIndex % Math.max(1, this.players.filter(pl => !pl.sitOut && pl.holeCards?.length > 0).length)]?.id,
         cardCount: p.holeCards?.length || 0,
-        // Only send hole cards to the player themselves (or if showdown)
         holeCards: (p.id === forPlayerId || this.phase === 'showdown') ? p.holeCards : null
       })),
-      pendingJoins: forPlayerId === this.hostId ? this.pendingJoins.map(p => ({ id: p.id, name: p.name })) : [],
-      isHost: forPlayerId === this.hostId
+      pendingJoins: forPlayerId === this.hostId
+        ? this.pendingJoins.map(p => ({ id: p.id, name: p.name }))
+        : [],
     };
+  }
+
+  // Run it twice voting
+  voteRunItTwice(playerId, vote) {
+    if (!this.runItTwiceOffered) return null;
+    if (this.runItTwiceVotes[playerId] === undefined) return null;
+    this.runItTwiceVotes[playerId] = vote;
+
+    const votes = Object.values(this.runItTwiceVotes);
+    if (votes.some(v => v === null)) return { waiting: true };
+
+    const allYes = votes.every(v => v === true);
+    this.runItTwiceOffered = false;
+
+    if (allYes) {
+      return this._executeRunItTwice();
+    } else {
+      return this._runItOnce();
+    }
+  }
+
+  _executeRunItTwice() {
+    const { board1, board2 } = runItTwice(this.deck, this.board);
+
+    const results1 = determineWinners(
+      this.players.map(p => ({ id: p.id, totalBet: p.totalBet, folded: p.folded, holeCards: p.holeCards })),
+      board1, this.isOmaha
+    );
+    const results2 = determineWinners(
+      this.players.map(p => ({ id: p.id, totalBet: p.totalBet, folded: p.folded, holeCards: p.holeCards })),
+      board2, this.isOmaha
+    );
+
+    const winnerSummary = [];
+    const showdownHands1 = {};
+    const showdownHands2 = {};
+
+    const process = (results, board, half, label, handStore) => {
+      for (const result of results) {
+        const halfPot = Math.floor(result.amount * half);
+        const share = Math.floor(halfPot / result.winners.length);
+        const remainder = halfPot - share * result.winners.length;
+        result.winners.forEach((winnerId, idx) => {
+          const player = this.getPlayer(winnerId);
+          if (player) {
+            player.stack += share + (idx === 0 ? remainder : 0);
+            winnerSummary.push({
+              playerId: winnerId,
+              amount: share + (idx === 0 ? remainder : 0),
+              potIndex: result.potIndex,
+              runout: label,
+              handName: result.handInfo?.[winnerId]?.name,
+              handCards: result.handInfo?.[winnerId]?.cards
+            });
+          }
+        });
+      }
+      const nf = this.players.filter(p => !p.folded && p.holeCards?.length > 0);
+      for (const p of nf) {
+        const best = this.isOmaha ? bestOmahaHand(p.holeCards, board) : bestHoldemHand(p.holeCards, board);
+        handStore[p.id] = { ...best, holeCards: p.holeCards };
+      }
+    };
+
+    process(results1, board1, 0.5, 'run1', showdownHands1);
+    process(results2, board2, 0.5, 'run2', showdownHands2);
+
+    this.board = board1;
+    this.board2 = board2;
+
+    const handResult = {
+      type: 'handComplete',
+      winners: winnerSummary,
+      board: board1,
+      board2,
+      pots: this.pots,
+      showdownHands: showdownHands1,
+      showdownHands2,
+      isOmaha: this.isOmaha,
+      isBombPot: this.isBombPot,
+      ranItTwice: true,
+      handNumber: this.handNumber
+    };
+
+    this.handHistory.unshift({
+      handNumber: this.handNumber,
+      board: board1,
+      board2,
+      winners: winnerSummary,
+      showdownHands: showdownHands1,
+      showdownHands2,
+      pots: JSON.parse(JSON.stringify(this.pots)),
+      isOmaha: this.isOmaha,
+      isBombPot: this.isBombPot,
+      ranItTwice: true,
+      playerSnapshots: this.players.map(p => ({
+        id: p.id, name: p.name, holeCards: p.holeCards || [],
+        folded: p.folded, totalBet: p.totalBet, stackAfter: p.stack
+      })),
+      timestamp: Date.now()
+    });
+    if (this.handHistory.length > 50) this.handHistory.pop();
+
+    this.phase = 'waiting';
+    return handResult;
+  }
+
+  _runItOnce() {
+    while (this.board.length < 5) {
+      this.deck.pop();
+      this.board.push(this.deck.pop());
+    }
+    return this._goToShowdown();
   }
 }
 
-module.exports = { GameRoom };
+module.exports = GameRoom;

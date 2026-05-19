@@ -29,8 +29,8 @@ export default function ActionPanel({ gameState, myId, onAction, timeLeft }) {
   const presets = [
     { label: '½ Pot', value: Math.max(minTotal, Math.floor(pot / 2)) },
     { label: '¾ Pot', value: Math.max(minTotal, Math.floor(pot * 0.75)) },
-    { label: 'Pot', value: Math.max(minTotal, pot) },
-    { label: '2× Pot', value: Math.max(minTotal, pot * 2) },
+    { label: 'Pot',   value: Math.max(minTotal, pot) },
+    { label: '2×',    value: Math.max(minTotal, pot * 2) },
   ].map(p => ({ ...p, value: Math.min(p.value, myStack + myBet) }));
 
   const handleRaise = () => {
@@ -48,63 +48,75 @@ export default function ActionPanel({ gameState, myId, onAction, timeLeft }) {
 
   return (
     <div className="action-panel">
-      {timeLeft !== null && (
-        <div className="turn-timer">
-          <div className="turn-timer-bar" style={{ width: `${timerPct}%`, background: timerPct < 25 ? '#e74c3c' : 'var(--gold)' }} />
-        </div>
-      )}
-
-      {showRaise && (
-        <div className="raise-controls">
-          <div className="raise-presets">
-            {presets.map(p => (
-              <button key={p.label} className="raise-preset-btn" onClick={() => setRaiseAmount(String(p.value))}>
-                {p.label}
-              </button>
-            ))}
+      {/* Solid dark backdrop so nothing bleeds through */}
+      <div className="action-panel-bg">
+        {timeLeft !== null && (
+          <div className="turn-timer">
+            <div
+              className="turn-timer-bar"
+              style={{
+                width: `${timerPct}%`,
+                background: timerPct < 25 ? 'var(--red)' : 'var(--teal)',
+              }}
+            />
           </div>
-          <input
-            type="number"
-            className=""
-            value={raiseAmount}
-            min={minTotal}
-            max={myStack + myBet}
-            step={gameState.bigBlind || 20}
-            onChange={e => setRaiseAmount(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handleRaise()}
-          />
-          <button className="btn btn-gold btn-sm" onClick={handleRaise}>
-            {parseInt(raiseAmount) >= myStack + myBet ? 'All In' : currentBet > 0 ? 'Raise' : 'Bet'}
-          </button>
-          <button className="btn btn-ghost btn-sm" onClick={() => setShowRaise(false)}>✕</button>
-        </div>
-      )}
-
-      <div className="action-buttons">
-        <button className="btn btn-danger" onClick={() => onAction('fold')}>
-          Fold
-        </button>
-
-        {canCheck ? (
-          <button className="btn btn-outline" onClick={() => onAction('check')}>
-            Check
-          </button>
-        ) : (
-          <button className="btn btn-outline" onClick={() => onAction('call')}>
-            Call ${toCall.toLocaleString()}
-          </button>
         )}
 
-        <button className="btn btn-ghost" onClick={() => setShowRaise(s => !s)}>
-          {currentBet > 0 ? 'Raise' : 'Bet'} ↑
-        </button>
+        {showRaise && (
+          <div className="raise-controls">
+            <div className="raise-presets">
+              {presets.map(p => (
+                <button
+                  key={p.label}
+                  className="raise-preset-btn"
+                  onClick={() => setRaiseAmount(String(p.value))}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            <input
+              type="number"
+              value={raiseAmount}
+              min={minTotal}
+              max={myStack + myBet}
+              step={gameState.bigBlind || 20}
+              onChange={e => setRaiseAmount(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleRaise()}
+            />
+            <button className="btn btn-teal btn-sm" onClick={handleRaise}>
+              {parseInt(raiseAmount) >= myStack + myBet ? 'All In' : currentBet > 0 ? 'Raise' : 'Bet'}
+            </button>
+            <button className="btn btn-ghost btn-sm" onClick={() => setShowRaise(false)}>✕</button>
+          </div>
+        )}
 
-        <button
-          className="btn btn-gold"
-          onClick={() => onAction('allIn', myStack + myBet)}
-        >
-          All In ${(myStack + myBet).toLocaleString()}
-        </button>
+        <div className="action-buttons">
+          <button className="btn btn-danger" onClick={() => onAction('fold')}>
+            Fold
+          </button>
+
+          {canCheck ? (
+            <button className="btn btn-outline" onClick={() => onAction('check')}>
+              Check
+            </button>
+          ) : (
+            <button className="btn btn-outline" onClick={() => onAction('call')}>
+              Call ${toCall.toLocaleString()}
+            </button>
+          )}
+
+          <button className="btn btn-ghost" onClick={() => setShowRaise(s => !s)}>
+            {currentBet > 0 ? 'Raise' : 'Bet'} ↑
+          </button>
+
+          <button
+            className="btn btn-gold"
+            onClick={() => onAction('allIn', myStack + myBet)}
+          >
+            All In ${(myStack + myBet).toLocaleString()}
+          </button>
+        </div>
       </div>
     </div>
   );

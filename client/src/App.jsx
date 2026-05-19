@@ -543,6 +543,7 @@ function GameTable({ session }) {
           <HandResult
             result={handResult}
             players={gameState?.players}
+            seatPositions={seatPositions}
             onDismiss={() => setHandResult(null)}
           />
         )}

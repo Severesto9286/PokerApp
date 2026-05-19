@@ -1,11 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import Card from './Card.jsx';
 
 export default function HandResult({ result, players, onDismiss }) {
   const [visible, setVisible] = useState(true);
 
   useEffect(() => {
-    const t = setTimeout(() => { setVisible(false); setTimeout(onDismiss, 300); }, 9000);
+    const t = setTimeout(() => { setVisible(false); setTimeout(onDismiss, 300); }, 6000);
     return () => clearTimeout(t);
   }, []);
 
@@ -13,122 +12,109 @@ export default function HandResult({ result, players, onDismiss }) {
 
   const getPlayerName = (id) => players?.find(p => p.id === id)?.name || 'Unknown';
 
-  const isTwoBoards = result.twoBoards;
-  const board1Winners = result.winners?.filter(w => w.runout === 'board1' || (!w.runout && !isTwoBoards));
-  const board2Winners = result.winners?.filter(w => w.runout === 'board2');
-
-  // For normal run-it-twice
-  const run1 = result.winners?.filter(w => w.runout === 'run1' || (!w.runout && !isTwoBoards));
-  const run2 = result.winners?.filter(w => w.runout === 'run2');
-
-  const renderCardRow = (cards) => (
-    <div style={{ display: 'flex', gap: '3px', justifyContent: 'center', marginBottom: '0.5rem', flexWrap: 'wrap' }}>
-      {cards?.map((c, i) => <Card key={i} card={c} size="sm" animate={false} />)}
-    </div>
-  );
-
-  const renderWinner = (w, idx) => (
-    <div key={idx} style={{ marginBottom: '0.4rem' }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-        <span className="result-winner-name" style={{ fontSize: '1.3rem' }}>{getPlayerName(w.playerId)}</span>
-        {w.handName && <span className="result-hand-name" style={{ fontSize: '0.85rem' }}>{w.handName}</span>}
-        <span className="result-amount" style={{ fontSize: '1.4rem' }}>+${w.amount?.toLocaleString()}</span>
-      </div>
-      {w.handCards && (
-        <div style={{ display: 'flex', gap: '3px', justifyContent: 'center', marginTop: '4px' }}>
-          {w.handCards.map((c, i) => <Card key={i} card={c} size="sm" highlight animate={false} />)}
-        </div>
-      )}
-    </div>
-  );
+  // Collect all winners and sum amounts per player
+  const allWinners = result.winners || [];
+  const byPlayer = {};
+  for (const w of allWinners) {
+    if (!byPlayer[w.playerId]) byPlayer[w.playerId] = { ...w, amount: 0 };
+    byPlayer[w.playerId].amount += w.amount || 0;
+  }
 
   return (
-    <div className="result-overlay">
-      <div className="result-card" style={{ maxHeight: '80vh', overflowY: 'auto' }}>
-        {/* Badges */}
-        <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
-          {result.isBombPot && <span className="tag tag-bomb">💣 Bomb Pot</span>}
-          {isTwoBoards && <span className="tag tag-omaha">Two Boards</span>}
-          {result.ranItTwice && <span className="tag tag-omaha">Run It Twice</span>}
+    <>
+      {Object.values(byPlayer).map((w, idx) => (
+        <WinnerBadge
+          key={w.playerId}
+          name={getPlayerName(w.playerId)}
+          amount={w.amount}
+          handName={w.handName}
+          isBombPot={result.isBombPot}
+          ranItTwice={result.ranItTwice}
+          delay={idx * 200}
+        />
+      ))}
+    </>
+  );
+}
+
+function WinnerBadge({ name, amount, handName, isBombPot, ranItTwice, delay }) {
+  const [show, setShow] = useState(false);
+
+  useEffect(() => {
+    const t = setTimeout(() => setShow(true), delay);
+    return () => clearTimeout(t);
+  }, []);
+
+  return (
+    <div style={{
+      position: 'absolute',
+      top: '38%',
+      left: '50%',
+      transform: `translate(-50%, -50%) translateY(${show ? 0 : 12}px)`,
+      opacity: show ? 1 : 0,
+      transition: 'opacity 0.3s ease, transform 0.3s ease',
+      zIndex: 30,
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      gap: '4px',
+      pointerEvents: 'none',
+    }}>
+      {/* Tags row */}
+      <div style={{ display: 'flex', gap: '6px', marginBottom: '2px' }}>
+        {isBombPot && (
+          <span className="tag tag-bomb">💣 Bomb Pot</span>
+        )}
+        {ranItTwice && (
+          <span className="tag tag-omaha">Run It Twice</span>
+        )}
+      </div>
+
+      {/* Main badge */}
+      <div style={{
+        background: 'rgba(10,14,18,0.97)',
+        border: '1px solid var(--border-teal)',
+        borderTop: '2px solid var(--teal)',
+        borderRadius: 'var(--radius-md)',
+        padding: '10px 20px',
+        textAlign: 'center',
+        boxShadow: '0 8px 32px rgba(0,0,0,0.8), 0 0 0 1px rgba(0,196,170,0.08)',
+        minWidth: '180px',
+      }}>
+        <div style={{
+          fontFamily: 'var(--font-display)',
+          fontSize: '1.05rem',
+          fontWeight: 700,
+          color: 'var(--teal)',
+          letterSpacing: '0.08em',
+          textTransform: 'uppercase',
+          marginBottom: '2px',
+        }}>
+          {name}
         </div>
-
-        {/* TWO BOARDS (PLO Bomb Pot) */}
-        {isTwoBoards ? (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-            <div>
-              <div className="text-muted text-sm mb-1" style={{ textTransform: 'uppercase', letterSpacing: '0.08em', textAlign: 'center' }}>Board 1</div>
-              {renderCardRow(result.board)}
-              {board1Winners?.map(renderWinner)}
-            </div>
-            <div>
-              <div className="text-muted text-sm mb-1" style={{ textTransform: 'uppercase', letterSpacing: '0.08em', textAlign: 'center' }}>Board 2</div>
-              {renderCardRow(result.board2)}
-              {board2Winners?.map(renderWinner)}
-            </div>
-          </div>
-        ) : result.ranItTwice ? (
-          /* RUN IT TWICE */
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-            <div>
-              <div className="text-muted text-sm mb-1" style={{ textTransform: 'uppercase', letterSpacing: '0.08em', textAlign: 'center' }}>Run 1</div>
-              {renderCardRow(result.board)}
-              {run1?.map(renderWinner)}
-            </div>
-            <div>
-              <div className="text-muted text-sm mb-1" style={{ textTransform: 'uppercase', letterSpacing: '0.08em', textAlign: 'center' }}>Run 2</div>
-              {renderCardRow(result.board2)}
-              {run2?.map(renderWinner)}
-            </div>
-          </div>
-        ) : (
-          /* NORMAL */
-          <>
-            {result.board?.length > 0 && renderCardRow(result.board)}
-            {result.winners?.map(renderWinner)}
-          </>
-        )}
-
-        {/* All hands at showdown */}
-        {result.showdownHands && Object.keys(result.showdownHands).length > 1 && (
-          <div style={{ marginTop: '1rem', borderTop: '1px solid rgba(201,168,76,0.15)', paddingTop: '1rem' }}>
-            <div className="text-muted text-sm mb-1" style={{ textAlign: 'center', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
-              {isTwoBoards ? 'Board 1 Hands' : 'All Hands'}
-            </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', justifyContent: 'center' }}>
-              {Object.entries(result.showdownHands).map(([id, hand]) => (
-                <div key={id} style={{ textAlign: 'center' }}>
-                  <div className="text-sm" style={{ color: 'var(--cream-muted)', marginBottom: '3px' }}>{getPlayerName(id)}</div>
-                  <div style={{ display: 'flex', gap: '2px', justifyContent: 'center' }}>
-                    {hand.holeCards?.map((c, i) => <Card key={i} card={c} size="sm" animate={false} />)}
-                  </div>
-                  <div className="text-sm text-muted" style={{ marginTop: '3px' }}>{hand.name}</div>
-                </div>
-              ))}
-            </div>
+        {handName && (
+          <div style={{
+            fontFamily: 'var(--font-ui)',
+            fontSize: '0.68rem',
+            fontWeight: 700,
+            color: 'var(--text-secondary)',
+            letterSpacing: '0.1em',
+            textTransform: 'uppercase',
+            marginBottom: '4px',
+          }}>
+            {handName}
           </div>
         )}
-
-        {/* Board 2 hands for two-board bomb pot */}
-        {isTwoBoards && result.showdownHands2 && Object.keys(result.showdownHands2).length > 1 && (
-          <div style={{ marginTop: '1rem', borderTop: '1px solid rgba(201,168,76,0.15)', paddingTop: '1rem' }}>
-            <div className="text-muted text-sm mb-1" style={{ textAlign: 'center', letterSpacing: '0.1em', textTransform: 'uppercase' }}>Board 2 Hands</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', justifyContent: 'center' }}>
-              {Object.entries(result.showdownHands2).map(([id, hand]) => (
-                <div key={id} style={{ textAlign: 'center' }}>
-                  <div className="text-sm" style={{ color: 'var(--cream-muted)', marginBottom: '3px' }}>{getPlayerName(id)}</div>
-                  <div style={{ display: 'flex', gap: '2px', justifyContent: 'center' }}>
-                    {hand.holeCards?.map((c, i) => <Card key={i} card={c} size="sm" animate={false} />)}
-                  </div>
-                  <div className="text-sm text-muted" style={{ marginTop: '3px' }}>{hand.name}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <button className="btn btn-ghost btn-sm" style={{ marginTop: '1rem' }} onClick={onDismiss}>
-          Dismiss
-        </button>
+        <div style={{
+          fontFamily: 'var(--font-data)',
+          fontSize: '1.3rem',
+          fontWeight: 700,
+          color: 'var(--amber)',
+          textShadow: '0 0 14px rgba(240,168,32,0.5)',
+          letterSpacing: '0.02em',
+        }}>
+          +${amount?.toLocaleString()}
+        </div>
       </div>
     </div>
   );

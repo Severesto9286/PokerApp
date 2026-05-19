@@ -16,18 +16,20 @@ export default function PlayerSeat({ player, isCurrentTurn, myId, seatPosition, 
 
   const totalPot = player.currentBet > 0 ? player.currentBet : null;
 
+  const renderCards = () => {
+    // Don't show cards at the seat for yourself — the hole card tray shows them
+    if (isMe && player.holeCards && player.holeCards.length > 0) return null;
+    if (player.holeCards && player.holeCards.length > 0)
+      return player.holeCards.map((c, i) => <Card key={i} card={c} size="sm" isNew animate={animate} animationSpeed={animationSpeed} />);
+    if (player.cardCount > 0)
+      return Array.from({ length: player.cardCount }).map((_, i) => <Card key={i} faceDown size="sm" />);
+    return null;
+  };
+
   return (
     <div className={`seat seat-pos-${seatPosition}`}>
-      {/* Cards above avatar for top seats, below for bottom */}
       {seatPosition >= 3 && (
-        <div className="seat-cards">
-          {player.holeCards && player.holeCards.length > 0
-            ? player.holeCards.map((c, i) => <Card key={i} card={c} size="sm" isNew animate={animate} animationSpeed={animationSpeed} />)
-            : player.cardCount > 0
-              ? Array.from({ length: player.cardCount }).map((_, i) => <Card key={i} faceDown size="sm" />)
-              : null
-          }
-        </div>
+        <div className="seat-cards">{renderCards()}</div>
       )}
 
       <div className={avatarClass}>
@@ -53,14 +55,7 @@ export default function PlayerSeat({ player, isCurrentTurn, myId, seatPosition, 
       )}
 
       {seatPosition < 3 && (
-        <div className="seat-cards">
-          {player.holeCards && player.holeCards.length > 0
-            ? player.holeCards.map((c, i) => <Card key={i} card={c} size="sm" isNew animate={animate} animationSpeed={animationSpeed} />)
-            : player.cardCount > 0
-              ? Array.from({ length: player.cardCount }).map((_, i) => <Card key={i} faceDown size="sm" />)
-              : null
-          }
-        </div>
+        <div className="seat-cards">{renderCards()}</div>
       )}
     </div>
   );

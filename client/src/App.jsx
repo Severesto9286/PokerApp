@@ -392,57 +392,69 @@ function GameTable({ session }) {
           ))}
 
           {/* Board */}
-          <div className="board-area">
+<div className="board-area">
             {gameState?.isBombPot && (
               <div className="bomb-pot-banner">💣 Bomb Pot · PLO</div>
             )}
-            {gameState?.board?.length > 0 && (
-              <>
-                <div className="board-label">
-                  {gameState.isOmaha ? 'PLO' : "Hold'em"} · {gameState.phase?.toUpperCase()}
-                </div>
-                <div className="board-cards">
-                  {gameState.board.slice(0, 3).map((c, i) => (
-                    <Card key={`board-a-${i}`} card={c} size="md"
-                      isNew={newCardIndices.has(i)}
-                      dealDelay={i * 80}
-                      animate={settings.animationsEnabled}
-                      animationSpeed={settings.animationSpeed} />
-                  ))}
-                  {gameState.board.length > 3 && <div className="board-divider" />}
-                  {gameState.board.slice(3).map((c, i) => (
-                    <Card key={`board-b-${i}`} card={c} size="md"
-                      isNew={newCardIndices.has(i + 3)}
-                      dealDelay={0}
-                      animate={settings.animationsEnabled}
-                      animationSpeed={settings.animationSpeed} />
-                  ))}
-                </div>
-                {/* Second board for PLO bomb pots */}
-                {gameState.board2 && gameState.isBombPot && (
-                  <div style={{ marginTop: '0.5rem' }}>
-                    <div className="board-label" style={{ marginBottom: '4px' }}>Board 2</div>
-                    <div className="board-cards">
-                      {gameState.board2.slice(0, 3).map((c, i) => (
-                        <Card key={`board2-a-${i}`} card={c} size="md"
-                          isNew={newCardIndices.has(i + 10)}
-                          dealDelay={i * 80}
-                          animate={settings.animationsEnabled}
-                          animationSpeed={settings.animationSpeed} />
-                      ))}
-                      {gameState.board2.length > 3 && <div className="board-divider" />}
-                      {gameState.board2.slice(3).map((c, i) => (
-                        <Card key={`board2-b-${i}`} card={c} size="md"
-                          isNew={newCardIndices.has(i + 13)}
-                          dealDelay={0}
-                          animate={settings.animationsEnabled}
-                          animationSpeed={settings.animationSpeed} />
-                      ))}
-                    </div>
+            {gameState?.board?.length > 0 && (() => {
+              const board = gameState.board;
+              const isAllInRunout = gameState?.players?.filter(p => !p.folded).every(p => p.isAllIn);
+
+              const getCardDelay = (i) => {
+                if (!isAllInRunout || !newCardIndices.has(i)) return 0;
+                const newIdxArr = [...newCardIndices].sort((a, b) => a - b);
+                const lastNewIdx = newIdxArr[newIdxArr.length - 1];
+                if (i === lastNewIdx) return 1400;
+                return newIdxArr.indexOf(i) * 120;
+              };
+
+              return (
+                <>
+                  <div className="board-label">
+                    {gameState.isOmaha ? 'PLO' : "Hold'em"} · {gameState.phase?.toUpperCase()}
                   </div>
-                )}
-              </>
-            )}
+                  <div className="board-cards">
+                    {board.slice(0, 3).map((c, i) => (
+                      <Card key={`board-a-${i}`} card={c} size="md"
+                        isNew={newCardIndices.has(i)}
+                        dealDelay={getCardDelay(i)}
+                        animate={settings.animationsEnabled}
+                        animationSpeed={settings.animationSpeed} />
+                    ))}
+                    {board.length > 3 && <div className="board-divider" />}
+                    {board.slice(3).map((c, i) => (
+                      <Card key={`board-b-${i}`} card={c} size="md"
+                        isNew={newCardIndices.has(i + 3)}
+                        dealDelay={getCardDelay(i + 3)}
+                        animate={settings.animationsEnabled}
+                        animationSpeed={settings.animationSpeed} />
+                    ))}
+                  </div>
+                  {gameState.board2 && gameState.isBombPot && (
+                    <div style={{ marginTop: '0.5rem' }}>
+                      <div className="board-label" style={{ marginBottom: '4px' }}>Board 2</div>
+                      <div className="board-cards">
+                        {gameState.board2.slice(0, 3).map((c, i) => (
+                          <Card key={`board2-a-${i}`} card={c} size="md"
+                            isNew={newCardIndices.has(i + 10)}
+                            dealDelay={i * 80}
+                            animate={settings.animationsEnabled}
+                            animationSpeed={settings.animationSpeed} />
+                        ))}
+                        {gameState.board2.length > 3 && <div className="board-divider" />}
+                        {gameState.board2.slice(3).map((c, i) => (
+                          <Card key={`board2-b-${i}`} card={c} size="md"
+                            isNew={newCardIndices.has(i + 13)}
+                            dealDelay={0}
+                            animate={settings.animationsEnabled}
+                            animationSpeed={settings.animationSpeed} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              );
+            })()}
 
             {(totalPot > 0 || gameState?.phase === 'waiting') && (
               <div className="pot-display">

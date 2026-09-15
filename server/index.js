@@ -1,405 +1,251 @@
 'use strict';
 
+const path = require('path');
+const fs = require('fs');
 const express = require('express');
 const { createServer } = require('http');
 const { Server } = require('socket.io');
-const cors = require('cors');
-const { v4: uuid } = require('uuid');
-const { GameRoom } = require('./gameRoom');
-
-const app = express();
-app.use(cors({ origin: '*' }));
-app.use(express.json());
-
-const httpServer = createServer(app);
-const io = new Server(httpServer, {
-  cors: { origin: '*', methods: ['GET', 'POST'] }
-});
-
-const rooms = new Map();
-const socketToPlayer = new Map();
-
-// ─── REST endpoints ───────────────────────────────────────────────────────────
-
-app.post('/api/rooms', (req, res) => {
-  const { hostName } = req.body;
-  if (!hostName) return res.status(400).json({ error: 'hostName required' });
-
-  const roomId = Math.random().toString(36).slice(2, 8).toUpperCase();
-  const hostId = uuid();
-  const room = new GameRoom(roomId, hostId);
-  rooms.set(roomId, room);
-
-  room.addPendingJoin(hostId, hostName, null);
-  room.approveJoin(hostId, 1000);
-
-  res.json({ roomId, playerId: hostId, isHost: true });
-});
-
-app.post('/api/rooms/:roomId/join', (req, res) => {
-  const room = rooms.get(req.params.roomId);
-  if (!room) return res.status(404).json({ error: 'Room not found' });
-  if (room.players.length >= 6) return res.status(400).json({ error: 'Room full' });
-
-  const { playerName } = req.body;
-  if (!playerName) return res.status(400).json({ error: 'playerName required' });
-
-  const playerId = uuid();
-  const added = room.addPendingJoin(playerId, playerName, null);
-  if (!added) return res.status(400).json({ error: 'Already pending or in room' });
-
-  const hostSocket = [...io.sockets.sockets.values()].find(s => {
-    const sp = socketToPlayer.get(s.id);
-    return sp && sp.roomId === room.roomId && sp.playerId === room.hostId;
-  });
-  if (hostSocket) {
-    hostSocket.emit('joinRequest', { playerId, playerName });
-  }
-
-  res.json({ playerId, roomId: room.roomId, status: 'pending' });
-});
-
-app.get('/api/rooms/:roomId', (req, res) => {
-  const room = rooms.get(req.params.roomId);
-  if (!room) return res.status(404).json({ error: 'Room not found' });
-  res.json({ roomId: room.roomId, playerCount: room.players.length, phase: room.phase });
-});
-
-app.get('/health', (_, res) => res.json({ ok: true, rooms: rooms.size }));
-
-// ─── Socket.io ────────────────────────────────────────────────────────────────
-
-io.on('connection', (socket) => {
-  console.log('Socket connected:', socket.id);
-
-  socket.on('identify', ({ roomId, playerId }) => {
-    const room = rooms.get(roomId);
-    if (!room) return socket.emit('error', { message: 'Room not found' });
-
-    const pending = room.pendingJoins.find(p => p.id === playerId);
-    if (pending) {
-      pending.socketId = socket.id;
-      socketToPlayer.set(socket.id, { roomId, playerId, pending: true });
-      socket.join(roomId);
-      socket.emit('identified', { playerId, isHost: false, pending: true });
-      return;
-    }
-
-    const player = room.getPlayer(playerId);
-    if (!player) return socket.emit('error', { message: 'Player not found in room' });
-
-    player.socketId = socket.id;
-    player.connected = true;
-    socketToPlayer.set(socket.id, { roomId, playerId });
-    socket.join(roomId);
-
-    socket.emit('identified', { playerId, isHost: playerId === room.hostId });
-    socket.emit('gameState', room.publicState(playerId));
-
-    socket.to(roomId).emit('playerConnected', { playerId, name: player.name });
-    broadcastState(room);
-  });
-
-  // ── Host Actions ──────────────────────────────────────────────────────────
-
-  socket.on('approveJoin', ({ playerId: pendingId, stackSize }) => {
-    const sp = socketToPlayer.get(socket.id);
-    if (!sp) return;
-    const room = rooms.get(sp.roomId);
-    if (!room || sp.playerId !== room.hostId) return socket.emit('error', { message: 'Not host' });
-
-    const player = room.approveJoin(pendingId, stackSize || 1000);
-    if (!player) return socket.emit('error', { message: 'Could not approve player' });
-
-    const pendingSocket = [...io.sockets.sockets.values()].find(s => {
-      const ssp = socketToPlayer.get(s.id);
-      return ssp && ssp.roomId === room.roomId && ssp.playerId === pendingId;
-    });
-    if (pendingSocket) {
-      player.socketId = pendingSocket.id;
-      player.connected = true;
-      socketToPlayer.set(pendingSocket.id, { roomId: room.roomId, playerId: pendingId });
-      pendingSocket.emit('joinApproved', { stackSize: player.stack });
-      setTimeout(() => {
-        pendingSocket.emit('gameState', room.publicState(pendingId));
-      }, 300);
-    }
-
-    io.to(sp.roomId).emit('playerJoined', { playerId: player.id, name: player.name, stack: player.stack });
-    broadcastState(room);
-  });
-
-  socket.on('denyJoin', ({ playerId: pendingId }) => {
-    const sp = socketToPlayer.get(socket.id);
-    if (!sp) return;
-    const room = rooms.get(sp.roomId);
-    if (!room || sp.playerId !== room.hostId) return;
-    room.denyJoin(pendingId);
-    broadcastState(room);
-  });
-
-  socket.on('setStack', ({ targetPlayerId, amount }) => {
-    const sp = socketToPlayer.get(socket.id);
-    if (!sp) return;
-    const room = rooms.get(sp.roomId);
-    if (!room || sp.playerId !== room.hostId) return;
-    const player = room.getPlayer(targetPlayerId);
-    if (player) {
-      player.stack = parseInt(amount) || player.stack;
-      broadcastState(room);
-    }
-  });
-
-  socket.on('setBlinds', ({ smallBlind, bigBlind }) => {
-    const sp = socketToPlayer.get(socket.id);
-    if (!sp) return;
-    const room = rooms.get(sp.roomId);
-    if (!room || sp.playerId !== room.hostId) return;
-    if (room.phase !== 'waiting') return socket.emit('error', { message: 'Can only change blinds between hands' });
-    room.smallBlind = parseInt(smallBlind) || room.smallBlind;
-    room.bigBlind = parseInt(bigBlind) || room.bigBlind;
-    io.to(sp.roomId).emit('blindsChanged', { smallBlind: room.smallBlind, bigBlind: room.bigBlind });
-    broadcastState(room);
-  });
-
-  socket.on('setBombPotFrequency', ({ frequency }) => {
-    const sp = socketToPlayer.get(socket.id);
-    if (!sp) return;
-    const room = rooms.get(sp.roomId);
-    if (!room || sp.playerId !== room.hostId) return;
-    room.bombPotFrequency = Math.max(0, Math.min(1, parseFloat(frequency) || 0));
-    broadcastState(room);
-  });
-
-  socket.on('setAutoDeal', ({ autoDeal, handDelay }) => {
-    const sp = socketToPlayer.get(socket.id);
-    if (!sp) return;
-    const room = rooms.get(sp.roomId);
-    if (!room || sp.playerId !== room.hostId) return;
-    if (autoDeal !== undefined) room.autoDeal = !!autoDeal;
-    if (handDelay !== undefined) room.handDelay = Math.max(3, Math.min(60, parseInt(handDelay) || 10));
-    broadcastState(room);
-  });
-
-  socket.on('removePlayer', ({ targetPlayerId }) => {
-    const sp = socketToPlayer.get(socket.id);
-    if (!sp) return;
-    const room = rooms.get(sp.roomId);
-    if (!room || sp.playerId !== room.hostId) return;
-    if (room.phase !== 'waiting') return socket.emit('error', { message: 'Can only remove players between hands' });
-    room.removePlayer(targetPlayerId);
-    const targetSocket = [...io.sockets.sockets.values()].find(s => {
-      const ssp = socketToPlayer.get(s.id);
-      return ssp && ssp.roomId === room.roomId && ssp.playerId === targetPlayerId;
-    });
-    if (targetSocket) targetSocket.emit('kicked', {});
-    broadcastState(room);
-  });
-
-  socket.on('startHand', () => {
-    const sp = socketToPlayer.get(socket.id);
-    if (!sp) return;
-    const room = rooms.get(sp.roomId);
-    if (!room || sp.playerId !== room.hostId) return socket.emit('error', { message: 'Not host' });
-    if (!room.canStartHand()) return socket.emit('error', { message: 'Cannot start hand' });
-
-    const result = room.startHand();
-    if (result.error) return socket.emit('error', { message: result.error });
-
-    io.to(sp.roomId).emit('handStarted', {
-      handNumber: room.handNumber,
-      isBombPot: result.isBombPot,
-      isOmaha: result.isOmaha,
-      board: result.board || [],
-      board2: result.board2 || null,
-      phase: result.phase
-    });
-
-    broadcastState(room);
-    emitTurnNotification(room);
-  });
-
-  // ── Player Actions ─────────────────────────────────────────────────────────
-
-  socket.on('action', ({ action, amount }) => {
-    const sp = socketToPlayer.get(socket.id);
-    if (!sp) return;
-    const room = rooms.get(sp.roomId);
-    if (!room) return;
-
-    const result = room.processAction(sp.playerId, action, amount);
-    if (result.error) return socket.emit('error', { message: result.error });
-
-    io.to(sp.roomId).emit('actionTaken', result.actionResult);
-
-    const next = result.next;
-    if (!next) return;
-
-    // Helper: auto-deal next hand after a delay
-    const tryAutoDeal = () => {
-      if (room.autoDeal) {
-        const delay = (room.handDelay || 10) * 1000;
-        setTimeout(() => {
-          if (room.autoDeal && room.canStartHand()) {
-            const r = room.startHand();
-            if (!r.error) {
-              io.to(room.roomId).emit('handStarted', {
-                handNumber: room.handNumber,
-                isBombPot: r.isBombPot,
-                isOmaha: r.isOmaha,
-                board: r.board || [],
-                board2: r.board2 || null,
-                phase: r.phase
-              });
-              broadcastState(room);
-              emitTurnNotification(room);
-            }
-          }
-        }, delay);
-      }
-    };
-
-    if (next.type === 'handComplete') {
-      io.to(sp.roomId).emit('handComplete', next);
-      broadcastState(room);
-      tryAutoDeal();
-
-    } else if (next.type === 'allInRunout') {
-      // Emit streets one at a time with 1.8s delay between each for drama
-      const STREET_DELAY = 1800;
-      broadcastState(room);
-
-      next.streets.forEach((street, i) => {
-        setTimeout(() => {
-          io.to(sp.roomId).emit('newStreet', {
-            phase: street.phase,
-            board: street.board,
-            board2: street.board2,
-          });
-          broadcastState(room);
-        }, i * STREET_DELAY);
-      });
-
-      // Emit handComplete after all streets are shown
-      const finalDelay = next.streets.length * STREET_DELAY + 1400;
-      setTimeout(() => {
-        io.to(sp.roomId).emit('handComplete', next.finalResult);
-        broadcastState(room);
-        tryAutoDeal();
-      }, finalDelay);
-
-    } else if (next.type === 'newStreet') {
-      io.to(sp.roomId).emit('newStreet', {
-        phase: next.phase,
-        board: next.board,
-        board2: next.board2 || null,
-      });
-      broadcastState(room);
-      emitTurnNotification(room);
-
-    } else if (next.type === 'runItTwiceOffer') {
-      io.to(sp.roomId).emit('runItTwiceOffer', next);
-      broadcastState(room);
-
-    } else if (next.type === 'action') {
-      broadcastState(room);
-      emitTurnNotification(room);
-    }
-  });
-
-  socket.on('voteRunItTwice', ({ vote }) => {
-    const sp = socketToPlayer.get(socket.id);
-    if (!sp) return;
-    const room = rooms.get(sp.roomId);
-    if (!room) return;
-
-    io.to(sp.roomId).emit('runItTwiceVote', { playerId: sp.playerId, vote });
-
-    const result = room.voteRunItTwice(sp.playerId, vote);
-    if (!result) return;
-    if (result.waiting) return;
-
-    if (result.type === 'handComplete') {
-      io.to(sp.roomId).emit('handComplete', result);
-    } else if (result.type === 'newStreet') {
-      io.to(sp.roomId).emit('newStreet', {
-        phase: result.phase,
-        board: result.board,
-        board2: result.board2 || null,
-      });
-      emitTurnNotification(room);
-    }
-    broadcastState(room);
-  });
-
-  socket.on('sitOut', ({ sitOut }) => {
-    const sp = socketToPlayer.get(socket.id);
-    if (!sp) return;
-    const room = rooms.get(sp.roomId);
-    if (!room) return;
-    const player = room.getPlayer(sp.playerId);
-    if (player) {
-      player.sitOut = !!sitOut;
-      broadcastState(room);
-    }
-  });
-
-  socket.on('chat', ({ message }) => {
-    const sp = socketToPlayer.get(socket.id);
-    if (!sp) return;
-    const room = rooms.get(sp.roomId);
-    if (!room) return;
-    const player = room.getPlayer(sp.playerId);
-    if (!player) return;
-
-    const msg = {
-      id: uuid(),
-      playerId: sp.playerId,
-      playerName: player.name,
-      message: message.slice(0, 200),
-      timestamp: Date.now()
-    };
-    room.chatHistory.push(msg);
-    if (room.chatHistory.length > 100) room.chatHistory.shift();
-    io.to(sp.roomId).emit('chat', msg);
-  });
-
-  socket.on('disconnect', () => {
-    const sp = socketToPlayer.get(socket.id);
-    if (sp) {
-      const room = rooms.get(sp.roomId);
-      if (room) {
-        const player = room.getPlayer(sp.playerId);
-        if (player) {
-          player.connected = false;
-          socket.to(sp.roomId).emit('playerDisconnected', { playerId: sp.playerId });
-          broadcastState(room);
-        }
-      }
-      socketToPlayer.delete(socket.id);
-    }
-    console.log('Socket disconnected:', socket.id);
-  });
-});
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function broadcastState(room) {
-  for (const player of room.players) {
-    if (!player.socketId) continue;
-    const sock = io.sockets.sockets.get(player.socketId);
-    if (sock) sock.emit('gameState', room.publicState(player.id));
-  }
-}
-
-function emitTurnNotification(room) {
-  const activePlayers = room.players.filter(p => !p.folded && !p.isAllIn && p.holeCards?.length > 0);
-  if (room.actionIndex === undefined || !activePlayers[room.actionIndex]) return;
-  const currentPlayer = activePlayers[room.actionIndex];
-  io.to(room.roomId).emit('yourTurn', { playerId: currentPlayer.id });
-}
-
-// ─── Start ────────────────────────────────────────────────────────────────────
+const { randomUUID, randomBytes } = require('crypto');
+const { Table } = require('./engine/table');
 
 const PORT = process.env.PORT || 3001;
-httpServer.listen(PORT, () => console.log(`Poker server running on port ${PORT}`));
+// Optional timing overrides for debugging, e.g. TIMING='{"showdownHold":20000}'
+let TIMING = {};
+try { TIMING = JSON.parse(process.env.TIMING || '{}'); } catch { TIMING = {}; }
+const app = express();
+const httpServer = createServer(app);
+const io = new Server(httpServer, { cors: { origin: '*', methods: ['GET', 'POST'] } });
+
+// ─── State ────────────────────────────────────────────────────────────────────
+const tables = new Map();      // tableId -> Table
+const credentials = new Map(); // playerId -> secret
+const identities = new Map();  // playerId -> { name, avatar }
+const sockets = new Map();     // socket.id -> { tableId, playerId }
+
+function newTableId() {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let id = '';
+  const bytes = randomBytes(5);
+  for (let i = 0; i < 5; i++) id += alphabet[bytes[i] % alphabet.length];
+  return tables.has(id) ? newTableId() : id;
+}
+
+function issueCredentials() {
+  const playerId = randomUUID();
+  const secret = randomBytes(16).toString('hex');
+  credentials.set(playerId, secret);
+  return { playerId, secret };
+}
+
+function authed(playerId, secret) {
+  return !!playerId && credentials.get(playerId) === secret;
+}
+
+function roomOf(tableId) { return `table:${tableId}`; }
+
+// Events that may only go to specific sockets are filtered here.
+const PRIVATE_EVENTS = new Set();
+
+function attachTable(table) {
+  let pending = false;
+  const flush = () => {
+    pending = false;
+    for (const [sid, info] of sockets) {
+      if (info.tableId !== table.id) continue;
+      const sock = io.sockets.sockets.get(sid);
+      if (sock) sock.emit('state', table.state(info.playerId));
+    }
+  };
+  table.on((evt) => {
+    if (evt.type === 'joinRequest') {
+      // Only the host needs to know, and the requester needs a status.
+      const req = evt.request;
+      emitToPlayer(table.id, req.id, 'joinStatus', { status: 'pending', tableId: table.id });
+    } else if (evt.type === 'joinDenied') {
+      emitToPlayer(table.id, evt.playerId, 'joinStatus', { status: 'denied', tableId: table.id });
+    } else if (evt.type === 'playerSeated') {
+      emitToPlayer(table.id, evt.player.id, 'joinStatus', { status: 'seated', tableId: table.id });
+    } else if (evt.type === 'playerLeft') {
+      emitToPlayer(table.id, evt.playerId, 'kicked', { tableId: table.id, reason: evt.reason });
+    }
+    if (!PRIVATE_EVENTS.has(evt.type)) io.to(roomOf(table.id)).emit('event', evt);
+    if (!pending) { pending = true; setImmediate(flush); }
+  });
+}
+
+function emitToPlayer(tableId, playerId, name, payload) {
+  for (const [sid, info] of sockets) {
+    if (info.tableId === tableId && info.playerId === playerId) {
+      const sock = io.sockets.sockets.get(sid);
+      if (sock) sock.emit(name, payload);
+    }
+  }
+}
+
+function getContext(socket) {
+  const info = sockets.get(socket.id);
+  if (!info) return null;
+  const table = tables.get(info.tableId);
+  if (!table) return null;
+  return { table, playerId: info.playerId, isHost: table.isHost(info.playerId) };
+}
+
+function bindSocketToTable(socket, tableId, playerId) {
+  const prev = sockets.get(socket.id);
+  if (prev && prev.tableId !== tableId) socket.leave(roomOf(prev.tableId));
+  sockets.set(socket.id, { tableId, playerId });
+  socket.join(roomOf(tableId));
+}
+
+// ─── Socket API ───────────────────────────────────────────────────────────────
+io.on('connection', (socket) => {
+  const reply = (cb, payload) => { if (typeof cb === 'function') cb(payload); };
+
+  socket.on('table:create', ({ name, avatar, config } = {}, cb) => {
+    const { playerId, secret } = issueCredentials();
+    const id = newTableId();
+    const safeConfig = {};
+    if (config && typeof config === 'object') Object.assign(safeConfig, config);
+    const table = new Table(id, playerId, {}, { timing: TIMING });
+    table.updateConfig(safeConfig);
+    tables.set(id, table);
+    attachTable(table);
+    identities.set(playerId, { name, avatar });
+    bindSocketToTable(socket, id, playerId);
+    const res = table.requestJoin({ id: playerId, name, avatar, buyIn: safeConfig.buyIn || table.config.buyIn });
+    if (res.error) return reply(cb, { error: res.error });
+    reply(cb, { tableId: id, playerId, secret, state: table.state(playerId) });
+  });
+
+  socket.on('table:join', ({ tableId, name, avatar, buyIn } = {}, cb) => {
+    const table = tables.get(String(tableId || '').toUpperCase().trim());
+    if (!table) return reply(cb, { error: 'Table not found. Check the code and try again.' });
+    const { playerId, secret } = issueCredentials();
+    identities.set(playerId, { name, avatar });
+    bindSocketToTable(socket, table.id, playerId);
+    const res = table.requestJoin({ id: playerId, name, avatar, buyIn });
+    if (res.error) { sockets.delete(socket.id); socket.leave(roomOf(table.id)); return reply(cb, { error: res.error }); }
+    reply(cb, { tableId: table.id, playerId, secret, pending: !!res.pending, state: table.state(playerId) });
+  });
+
+  // Reconnect after refresh / network blip.
+  socket.on('table:resume', ({ tableId, playerId, secret } = {}, cb) => {
+    const table = tables.get(String(tableId || '').toUpperCase());
+    if (!table) return reply(cb, { error: 'That table no longer exists.' });
+    if (!authed(playerId, secret)) return reply(cb, { error: 'Session expired.' });
+    const seated = table.getPlayer(playerId);
+    const pending = table.pending.find((p) => p.id === playerId);
+    if (!seated && !pending) return reply(cb, { error: 'You are no longer at this table.' });
+    bindSocketToTable(socket, table.id, playerId);
+    if (seated) table.setConnected(playerId, true);
+    reply(cb, { ok: true, tableId: table.id, pending: !!pending, state: table.state(playerId), chat: table.chat.slice(-60), history: table.history.slice(0, 30) });
+  });
+
+  socket.on('table:leave', (_, cb) => {
+    const ctx = getContext(socket);
+    if (!ctx) return reply(cb, { ok: true });
+    const { table, playerId } = ctx;
+    table.pending = table.pending.filter((p) => p.id !== playerId);
+    if (table.getPlayer(playerId)) table.removePlayer(playerId);
+    sockets.delete(socket.id);
+    socket.leave(roomOf(table.id));
+    reply(cb, { ok: true });
+    maybeCleanup(table);
+  });
+
+  socket.on('action', ({ action, amount } = {}, cb) => {
+    const ctx = getContext(socket);
+    if (!ctx) return reply(cb, { error: 'Not at a table' });
+    const res = ctx.table.act(ctx.playerId, action, amount);
+    reply(cb, res);
+  });
+
+  socket.on('sitOut', ({ sitOut } = {}, cb) => {
+    const ctx = getContext(socket);
+    if (!ctx) return reply(cb, { error: 'Not at a table' });
+    reply(cb, ctx.table.setSitOut(ctx.playerId, sitOut));
+  });
+
+  socket.on('rebuy', ({ amount } = {}, cb) => {
+    const ctx = getContext(socket);
+    if (!ctx) return reply(cb, { error: 'Not at a table' });
+    reply(cb, ctx.table.rebuy(ctx.playerId, amount));
+  });
+
+  socket.on('prefs', ({ runItTwice } = {}, cb) => {
+    const ctx = getContext(socket);
+    if (!ctx) return reply(cb, { error: 'Not at a table' });
+    if (runItTwice !== undefined) ctx.table.setRunItTwice(ctx.playerId, runItTwice);
+    reply(cb, { ok: true });
+  });
+
+  socket.on('chat', ({ text } = {}, cb) => {
+    const ctx = getContext(socket);
+    if (!ctx) return reply(cb, { error: 'Not at a table' });
+    ctx.table.addChat(ctx.playerId, text);
+    reply(cb, { ok: true });
+  });
+
+  socket.on('history', (_, cb) => {
+    const ctx = getContext(socket);
+    if (!ctx) return reply(cb, { history: [] });
+    reply(cb, { history: ctx.table.history.slice(0, 50) });
+  });
+
+  // ── Host controls ──
+  const hostOnly = (handler) => (payload = {}, cb) => {
+    const ctx = getContext(socket);
+    if (!ctx) return reply(cb, { error: 'Not at a table' });
+    if (!ctx.isHost) return reply(cb, { error: 'Host only' });
+    reply(cb, handler(ctx, payload) || { ok: true });
+  };
+
+  socket.on('host:approve', hostOnly(({ table }, { playerId, buyIn }) => table.approveJoin(playerId, buyIn)));
+  socket.on('host:deny', hostOnly(({ table }, { playerId }) => { table.denyJoin(playerId); }));
+  socket.on('host:config', hostOnly(({ table }, { patch }) => table.updateConfig(patch || {})));
+  socket.on('host:startHand', hostOnly(({ table }, { variant }) => table.startHand(variant === 'PLO' || variant === 'NLH' ? variant : undefined)));
+  socket.on('host:pause', hostOnly(({ table }, { paused }) => { table.setPaused(paused); }));
+  socket.on('host:nextVariant', hostOnly(({ table }, { variant }) => { table.forceNextVariant(variant); }));
+  socket.on('host:setStack', hostOnly(({ table }, { playerId, amount }) => table.setStack(playerId, amount)));
+  socket.on('host:addChips', hostOnly(({ table }, { playerId, amount }) => table.rebuy(playerId, amount)));
+  socket.on('host:kick', hostOnly(({ table }, { playerId }) => {
+    if (table.isHost(playerId)) return { error: 'Cannot remove the host' };
+    return table.removePlayer(playerId, 'kicked');
+  }));
+
+  socket.on('disconnect', () => {
+    const ctx = getContext(socket);
+    sockets.delete(socket.id);
+    if (!ctx) return;
+    const stillConnected = [...sockets.values()].some((i) => i.tableId === ctx.table.id && i.playerId === ctx.playerId);
+    if (!stillConnected && ctx.table.getPlayer(ctx.playerId)) ctx.table.setConnected(ctx.playerId, false);
+    maybeCleanup(ctx.table);
+  });
+});
+
+// Drop tables that have had nobody connected for a while.
+function maybeCleanup(table) {
+  setTimeout(() => {
+    const anyone = [...sockets.values()].some((i) => i.tableId === table.id);
+    if (!anyone && Date.now() - table.lastActivity > 30 * 60 * 1000) {
+      table.destroy();
+      tables.delete(table.id);
+    }
+  }, 31 * 60 * 1000).unref();
+}
+
+// ─── HTTP ─────────────────────────────────────────────────────────────────────
+app.get('/health', (_, res) => res.json({ ok: true, tables: tables.size }));
+app.get('/api/tables/:id', (req, res) => {
+  const table = tables.get(String(req.params.id).toUpperCase());
+  if (!table) return res.status(404).json({ error: 'Table not found' });
+  res.json({ id: table.id, players: table.players.length, maxSeats: table.config.maxSeats, blinds: [table.config.smallBlind, table.config.bigBlind], inHand: !!table.hand });
+});
+
+const dist = path.join(__dirname, '..', 'client', 'dist');
+if (fs.existsSync(dist)) {
+  app.use(express.static(dist));
+  app.get('*', (_, res) => res.sendFile(path.join(dist, 'index.html')));
+}
+
+httpServer.listen(PORT, () => console.log(`Poker server listening on :${PORT}`));

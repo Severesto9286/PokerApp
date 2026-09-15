@@ -1,146 +1,65 @@
-# 🃏 Felt & Friends Poker
+# ♠ Felt & Friends
 
-A private multiplayer poker app for you and your friends — fake money, real fun.
+Private online poker for you and your friends, styled after GGPoker. Fake chips, real drama.
 
-**Features:**
-- Texas Hold'em (up to 6 players)
-- PLO Bomb Pots (host-configurable frequency)
-- Run It Twice when all-in
-- Host controls: set stacks, blinds, approve/deny joins
-- Side pots calculated automatically
-- Real-time via WebSockets (Socket.io)
-- In-game chat
-- 30-second action timer
+- **No Limit Hold'em** with occasional **Pot Limit Omaha** hands (frequency set by the host), either as normal PLO hands with blinds or as **bomb pots** (everyone antes, straight to the flop, optional double board)
+- Full rules engine: side pots, short all-in raise rules, heads-up blinds, pot-limit sizing, uncalled bet return, run it twice, time bank
+- GG-style table: stadium felt, avatars with timer rings, chip stacks, dealer button, dealt/flipped cards, chips flying to the pot and to the winner, showdown highlights, hand-name badges
+- Procedural soundtrack: a cosy lo-fi lounge loop that ducks under a tense drone/heartbeat layer during all-ins and big pots, plus card/chip/knock sound effects (no audio files needed)
+- Host controls: approve joins, blinds, antes, buy-ins, stacks, PLO frequency & style, timing, run-it-twice, auto-deal, pause, kick
+- Chat with quick emoji, full hand history with every player's cards, reconnect after refresh, pre-action buttons (check/fold, call any), keyboard shortcuts (F / C / R)
 
----
+## Run it locally
 
-## Quick Start (Local)
-
-### Prerequisites
-- Node.js 18+
-- npm
-
-### 1. Install dependencies
+Requires Node 18+.
 
 ```bash
-# From the poker-app root:
-npm install          # installs concurrently
-npm run install:all  # installs server + client deps
+npm run install:all   # installs root, server and client deps
+npm run dev           # server on :3001, client on :5173
 ```
 
-### 2. Start both servers
+Open http://localhost:5173, create a table, and share the 5-letter code. To try it alone, open a second tab with `?p=2` in the URL (each `p` value keeps its own session) or seat some bots:
 
 ```bash
-npm run dev
+cd server
+node test/bots.js <TABLECODE> 3            # 3 bots that mostly call
+node test/bots.js <TABLECODE> 4 http://localhost:3001 maniac
 ```
 
-This starts:
-- **Server** on `http://localhost:3001`
-- **Client** on `http://localhost:5173` (with proxy to server)
+Run the engine tests with `npm test`.
 
-Open `http://localhost:5173` in your browser.
+## Deploy so friends can join remotely
 
----
+The server serves the built client, so a single deployment is enough (Railway, Render, Fly.io, a VPS…). The included `Dockerfile` and `nixpacks.toml` build the client and start the server on `$PORT`.
 
-## How to Play
+Manual equivalent:
 
-### Host (creates the table)
-1. Click **Create a Table**, enter your name
-2. Share the **room code** (shown top-left in-game) with friends
-3. As friends request to join, you'll see them in the **Host tab** → set their starting stack → click ✓
-4. Set blinds and bomb pot frequency in the Host panel
-5. Click **▶ Deal New Hand** to start
-
-### Players (joining)
-1. Click **Join a Table**, enter your name + room code
-2. Wait for the host to approve you
-3. Once approved you're at the table — the host deals
-
-### Gameplay
-- **Fold / Check / Call / Raise / All In** buttons appear on your turn
-- Use raise presets (½ Pot, ¾ Pot, Pot, 2× Pot) or enter a custom amount
-- When going all-in against another all-in player, you'll be offered to **Run It Twice**
-- Both players must agree to run it twice; if either declines, it runs once
-
-### Bomb Pots
-- The host sets frequency (0–100%) in the Host panel
-- When triggered: everyone posts the big blind, 4 hole cards dealt (PLO), flop dealt immediately, no preflop action
-- Standard PLO rules: must use exactly 2 hole cards + 3 board cards
-
----
-
-## Deploying (so friends can join remotely)
-
-### Recommended: Railway (server) + Vercel (client)
-
-**Server on Railway:**
-1. Create account at [railway.app](https://railway.app)
-2. New project → Deploy from GitHub (push `poker-app/server` folder, or use the full repo)
-3. Set start command: `node index.js`
-4. Note the generated URL, e.g. `https://poker-server-prod.railway.app`
-
-**Client on Vercel:**
-1. Push the `poker-app/client` folder to a GitHub repo
-2. Import to [vercel.com](https://vercel.com)
-3. Add environment variable: `VITE_SERVER_URL=https://poker-server-prod.railway.app`
-4. Deploy
-
-**Alternative: single server with static files**
 ```bash
-cd client && npm run build
-# Copy dist/ into server/public/
-# Add to server/index.js:
-# app.use(express.static(path.join(__dirname, 'public')));
-# app.get('*', (_, res) => res.sendFile(path.join(__dirname, 'public/index.html')));
-```
-Then deploy just the server folder to Railway/Render/Fly.io.
-
----
-
-## Project Structure
-
-```
-poker-app/
-├── server/
-│   ├── index.js          # Express + Socket.io server
-│   ├── gameRoom.js       # Game state machine
-│   ├── pokerEngine.js    # Hand evaluation, deck, side pots
-│   └── package.json
-├── client/
-│   ├── src/
-│   │   ├── App.jsx           # Main app, lobby, game table
-│   │   ├── components/
-│   │   │   ├── Card.jsx          # Playing card renderer
-│   │   │   ├── PlayerSeat.jsx    # Seat around the table
-│   │   │   ├── ActionPanel.jsx   # Fold/Call/Raise controls
-│   │   │   ├── HandResult.jsx    # Winner overlay
-│   │   │   └── HostControls.jsx  # Host sidebar panel
-│   │   ├── hooks/
-│   │   │   └── useSocket.js      # Socket.io connection hook
-│   │   └── index.css         # Full dark poker theme
-│   └── package.json
-└── package.json          # Root scripts
+npm run build         # builds client/dist
+npm start             # node server/index.js  (serves the API, sockets and the built client)
 ```
 
----
+If you'd rather host the client separately (e.g. Vercel), set `VITE_SERVER_URL` to the server URL before building.
 
-## Configuration
+## Project layout
 
-| Setting | Default | Where |
-|---|---|---|
-| Server port | `3001` | `server/.env` → `PORT` |
-| Starting stack | `$1000` | Set per-player in Host panel |
-| Small blind | `$10` | Host panel (changeable between hands) |
-| Big blind | `$20` | Host panel |
-| Bomb pot frequency | `20%` | Host panel slider |
-| Action timeout | 30s | `server/index.js` → `ACTION_TIMEOUT` |
-| Max players | 6 | `server/index.js` |
+```
+server/
+  index.js            Express + Socket.io, sessions, host commands
+  engine/table.js     Table state machine (seats, hands, betting, run-outs, showdown, timers)
+  engine/evaluator.js Hand evaluation (Hold'em + Omaha)
+  engine/pots.js      Side pots
+  test/               node:test suite and the bot script
+client/src/
+  App.jsx             Session + screens
+  lib/useGame.js      Socket state, animation timeline
+  lib/audio.js        Procedural music + SFX
+  lib/layout.js       Stage geometry and seat positions
+  components/         Lobby, TableView, Seat, Card, Chips, ActionBar, SidePanel
+  styles/             Design tokens and table/panel styles
+```
 
----
+## Notes
 
-## Known Limitations / Future Ideas
-- No persistent database (rooms are in-memory; restart = reset)
-- No reconnection state recovery after full server restart
-- No tournament mode / blind levels timer
-- No straddle
-- Omaha hi/lo not included
+- Tables live in memory; restarting the server ends all games.
+- Set `TIMING='{"showdownHold":20000}'` on the server to slow down run-outs/showdowns while debugging.

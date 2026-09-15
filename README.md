@@ -30,6 +30,17 @@ Run the engine tests with `npm test`.
 
 ## Deploy so friends can join remotely
 
+### Free setup: Vercel (site) + Render (server)
+
+Vercel can't host the game server (it needs a long-lived Socket.io process with in-memory tables and timers), so split it:
+
+1. **Server on Render** (free tier): render.com → New → *Blueprint* → pick this repo. `render.yaml` sets everything up (root `server/`, `node index.js`). Copy the service URL, e.g. `https://pokerapp-server.onrender.com`.
+2. **Site on Vercel**: import the repo with *Root Directory* = `client`. Add the environment variable `VITE_SERVER_URL=https://pokerapp-server.onrender.com` and deploy.
+
+Free Render services sleep after 15 minutes idle and take ~30–60 s to wake; the site shows "Connecting to server…" until then. A free uptime pinger (e.g. cron-job.org hitting `/health` every 10 minutes) keeps it awake during game nights.
+
+### Single service
+
 The server serves the built client, so a single deployment is enough (Railway, Render, Fly.io, a VPS…). The included `Dockerfile` and `nixpacks.toml` build the client and start the server on `$PORT`.
 
 Manual equivalent:

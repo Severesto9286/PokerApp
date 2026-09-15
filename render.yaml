@@ -1,0 +1,14 @@
+# One-click deploy of the game server on Render's free tier (Blueprints).
+# The client can be hosted anywhere static (e.g. Vercel) with VITE_SERVER_URL pointing here.
+services:
+  - type: web
+    name: pokerapp-server
+    runtime: node
+    plan: free
+    rootDir: server
+    buildCommand: npm install
+    startCommand: node index.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 20

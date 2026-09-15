@@ -35,7 +35,7 @@ export default function Seat({
   player, pos, isHero, isTurn, deadline, actionTime, usingTimeBank, serverOffset,
   cards, folded, tag, winAmount, showdownDim, handName, fourColor, bb, inBB,
   dealing, dealerPos, isWinner, revealed, variant, onClick, sittingOutNext, compact = false,
-  highlightCards = null, heroHint = null,
+  highlightCards = null, heroHint = null, dealt = true,
 }) {
   const av = avatarOf(player.avatar);
   const [x, y] = pos;
@@ -48,7 +48,7 @@ export default function Seat({
     return () => clearTimeout(t);
   }, [tag]);
 
-  const inHand = player.inHand && cardCount > 0;
+  const inHand = player.inHand && cardCount > 0 && dealt;
   const hasFolded = folded || player.folded;
   const faceUp = !!cards && cards.length > 0;
   const dealFrom = dealing && dealerPos ? [dealerPos[0] - x, dealerPos[1] - y - 60] : null;

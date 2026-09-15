@@ -106,7 +106,8 @@ io.on('connection', (socket) => {
     const id = newTableId();
     const safeConfig = {};
     if (config && typeof config === 'object') Object.assign(safeConfig, config);
-    const table = new Table(id, playerId, {}, { timing: TIMING });
+    const maxSeats = Math.min(9, Math.max(2, Math.round(Number(safeConfig.maxSeats)) || 6));
+    const table = new Table(id, playerId, { maxSeats }, { timing: TIMING });
     table.updateConfig(safeConfig);
     tables.set(id, table);
     attachTable(table);

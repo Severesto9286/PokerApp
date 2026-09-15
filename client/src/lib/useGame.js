@@ -26,6 +26,7 @@ const initialAnim = {
   flights: [],         // animated chip stacks
   tags: {},            // seat -> { action, amount, at }
   dealing: null,       // { seats, cardsEach, at, dealerSeat }
+  dealt: false,        // cards may be shown (the deal animation has started)
   folded: {},          // seat -> at
   reveals: {},         // seat -> cards
   result: null,        // last result (banner)
@@ -121,7 +122,7 @@ export function useGame(session, onSessionLost) {
         else audio.chips(e.amount);
         break;
       case 'deal':
-        dispatch({ type: 'patch', patch: { dealing: { seats: e.seats, cardsEach: e.cardsEach, at: Date.now(), dealerSeat: e.dealerSeat } } });
+        dispatch({ type: 'patch', patch: { dealt: true, dealing: { seats: e.seats, cardsEach: e.cardsEach, at: Date.now(), dealerSeat: e.dealerSeat } } });
         for (let i = 0; i < Math.min(e.seats.length * e.cardsEach, 12); i++) later(() => audio.deal(), i * 70);
         break;
       case 'action': {
@@ -276,7 +277,7 @@ export function useGame(session, onSessionLost) {
           bets: h.finished ? {} : bets,
           pot: h.finished ? 0 : Math.max(0, h.potTotal - streetTotal),
           reveals, folded,
-          handNumber: h.number, variant: h.variant, bombPot: h.bombPot, handActive: true,
+          handNumber: h.number, variant: h.variant, bombPot: h.bombPot, handActive: true, dealt: true,
           runningOut: h.runningOut, runItTwice: h.runItTwice,
           turnSeat: h.actionSeat,
           result: h.finished ? (a.result || s.lastResult) : null,

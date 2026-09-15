@@ -153,6 +153,13 @@ export default function TableView({ game, prefs, onOpenPanel, panelOpen, unread 
   };
 
   const inHandCount = state.seats.filter((p) => p && !p.sittingOut && p.stack > 0).length;
+  // Tick once a second while the next-hand countdown is showing.
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (!state.nextHandAt || hand) return undefined;
+    const id = setInterval(() => tick((n) => n + 1), 1000);
+    return () => clearInterval(id);
+  }, [state.nextHandAt, hand]);
   const nextHandIn = state.nextHandAt ? Math.max(0, Math.ceil((state.nextHandAt - (Date.now() + serverOffset.current)) / 1000)) : null;
 
   const variantLabel = hand ? (hand.variant === 'PLO' ? (hand.bombPot ? 'PLO Bomb Pot' : 'Pot Limit Omaha') : "No Limit Hold'em") : (state.config.ploFrequency > 0 ? "NLH + PLO" : "No Limit Hold'em");
@@ -267,7 +274,7 @@ export default function TableView({ game, prefs, onOpenPanel, panelOpen, unread 
               handName={showdownActive && anim.result.showdown ? (anim.result.reveals.find((r) => r.seat === p.seat)?.hands.map((h) => h.name).filter((v, i, a) => a.indexOf(v) === i).join(' / ') || null) : null}
               fourColor={prefs.fourColor} bb={bb} inBB={inBB}
               dealing={anim.dealing} dealerPos={dealerPos} variant={hand?.variant} compact={portrait}
-              highlightCards={highlight} heroHint={p.id === state.you ? heroHint : null}
+              highlightCards={highlight} heroHint={p.id === state.you ? heroHint : null} dealt={anim.dealt}
               sittingOutNext={p.sittingOut && p.inHand} />
           ))}
 

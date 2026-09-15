@@ -5,7 +5,7 @@ Private online poker for you and your friends, styled after GGPoker. Fake chips,
 - **No Limit Hold'em** with occasional **Pot Limit Omaha** hands (frequency set by the host), either as normal PLO hands with blinds or as **bomb pots** (everyone antes, straight to the flop, optional double board)
 - Full rules engine: side pots, short all-in raise rules, heads-up blinds, pot-limit sizing, uncalled bet return, run it twice, time bank
 - GG-style table: stadium felt, avatars with timer rings, chip stacks, dealer button, dealt/flipped cards, chips flying to the pot and to the winner, showdown highlights, hand-name badges
-- Procedural soundtrack: a cosy lo-fi lounge loop that ducks under a tense drone/heartbeat layer during all-ins and big pots, plus card/chip/knock sound effects (no audio files needed)
+- Real soundtrack: a lounge-jazz playlist (Kevin MacLeod) that ducks under a looping tension track during all-ins and big pots, plus recorded card, chip and knock effects (Kenney) — see `client/public/audio/CREDITS.md`
 - Host controls: approve joins, blinds, antes, buy-ins, stacks, PLO frequency & style, timing, run-it-twice, auto-deal, pause, kick
 - Chat with quick emoji, full hand history with every player's cards, reconnect after refresh, pre-action buttons (check/fold, call any), keyboard shortcuts (F / C / R)
 
@@ -53,7 +53,7 @@ server/
 client/src/
   App.jsx             Session + screens
   lib/useGame.js      Socket state, animation timeline
-  lib/audio.js        Procedural music + SFX
+  lib/audio.js        Music playlist + sample player (assets in client/public/audio)
   lib/layout.js       Stage geometry and seat positions
   components/         Lobby, TableView, Seat, Card, Chips, ActionBar, SidePanel
   styles/             Design tokens and table/panel styles

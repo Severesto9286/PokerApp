@@ -114,6 +114,7 @@ export function useGame(session, onSessionLost) {
       case 'handStart':
         dispatch({ type: 'fn', fn: (a) => ({ ...initialAnim, handNumber: e.handNumber, variant: e.variant, bombPot: e.bombPot, handActive: true }) });
         audio.setTension(0);
+        audio.shuffle();
         if (e.variant === 'PLO') { audio.notify(); toast(e.bombPot ? '💣 Bomb pot! PLO, everyone posts, straight to the flop' : '🃏 PLO hand — four cards, pot limit', 'variant', 3600); }
         break;
       case 'post':

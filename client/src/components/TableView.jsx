@@ -108,6 +108,12 @@ export default function TableView({ game, prefs, onOpenPanel, panelOpen, unread 
   const myTurn = !!(hand && me && hand.actionSeat === me.seat && !hand.finished);
   const legal = myTurn ? state.legal : null;
 
+  // Flag the browser tab when it's our turn (handy when the tab is in the background).
+  useEffect(() => {
+    document.title = myTurn ? '● Your turn — Felt & Friends' : 'Felt & Friends';
+    return () => { document.title = 'Felt & Friends'; };
+  }, [myTurn]);
+
   // Pre-actions fire the moment the action reaches us.
   useEffect(() => {
     if (!myTurn || !legal || !preAction) return;

@@ -141,7 +141,16 @@ class AudioEngine {
   _schedule() {
     const ctx = this.ctx;
     const lookahead = 0.25;
-    while (this.nextStepTime < ctx.currentTime + lookahead) {
+    // If the tab was throttled, never try to catch up on missed steps: skip ahead.
+    if (this.nextStepTime < ctx.currentTime - 0.3) {
+      const stepLen = this.beat / 2;
+      const missed = Math.ceil((ctx.currentTime - this.nextStepTime) / stepLen);
+      this.nextStepTime += missed * stepLen;
+      this.step = (this.step + missed) % 8;
+      this.bar += Math.floor((this.step + missed) / 8);
+    }
+    let guard = 0;
+    while (this.nextStepTime < ctx.currentTime + lookahead && guard++ < 8) {
       try { this._playStep(this.step, this.bar, this.nextStepTime); } catch (err) { console.warn('music step failed', err); }
       const swing = this.step % 2 === 1 ? this.beat * 0.08 : -this.beat * 0.08;
       this.nextStepTime += this.beat / 2 + swing;

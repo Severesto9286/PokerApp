@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { socket, call, saveSession } from './socket';
 import { audio } from './audio';
-import { seatPositions, betPosition, slotFor, POT } from './layout';
+import { seatPositions, betPosition, slotFor, getLayout } from './layout';
 
 // How long each event occupies the animation timeline (ms).
 function durationOf(e) {
@@ -88,9 +88,11 @@ export function useGame(session, onSessionLost) {
     if (!s) return null;
     const hero = s.seats.find((p) => p && p.id === s.you);
     const max = s.seats.length;
-    const positions = seatPositions(max);
+    const L = getLayout();
+    const positions = seatPositions(max, L);
     const posOf = (seat) => positions[slotFor(seat, hero ? hero.seat : 0, max)] || positions[0];
-    return { posOf, betOf: (seat) => betPosition(posOf(seat)) };
+    const pot = animRef.current.board2 ? L.POT_TWO_BOARDS : L.POT;
+    return { posOf, betOf: (seat) => betPosition(posOf(seat), L), pot: [pot.x, pot.y] };
   }, []);
 
   const addFlights = useCallback((items, dur) => {
@@ -102,6 +104,7 @@ export function useGame(session, onSessionLost) {
 
   // ─── Apply a single event to the animation state ─────────────────────────
   const apply = useCallback((e) => {
+    if (import.meta.env.DEV) console.debug('[anim]', e.type, e.seq, Math.round(performance.now() - (e._recv || performance.now())));
     const s = stateRef.current;
     const mySeat = s ? (s.seats.find((p) => p && p.id === s.you)?.seat ?? null) : null;
     const bb = s?.config?.bigBlind || 1;
@@ -141,7 +144,7 @@ export function useGame(session, onSessionLost) {
         const a = animRef.current;
         const entries = Object.entries(a.bets).filter(([, v]) => v > 0);
         if (entries.length && g) {
-          addFlights(entries.map(([seat, amount]) => ({ kind: 'chips', amount, from: g.betOf(Number(seat)), to: [POT.x, POT.y] })), 520);
+          addFlights(entries.map(([seat, amount]) => ({ kind: 'chips', amount, from: g.betOf(Number(seat)), to: g.pot })), 520);
           audio.collect();
           later(() => dispatch({ type: 'fn', fn: (x) => ({ ...x, bets: {}, pot: e.total }) }), 460);
         } else {
@@ -192,8 +195,8 @@ export function useGame(session, onSessionLost) {
         dispatch({ type: 'fn', fn: (a) => ({ ...a, reveals: { ...a.reveals, ...reveals }, result: e, winners, refund: e.refund, showdown: e.showdown, turnSeat: null }) });
         if (g) {
           const flights = [];
-          if (e.refund) flights.push({ kind: 'chips', amount: e.refund.amount, from: [POT.x, POT.y], to: g.betOf(e.refund.seat), refund: true });
-          for (const [seat, amount] of Object.entries(winners)) flights.push({ kind: 'chips', amount, from: [POT.x, POT.y], to: g.posOf(Number(seat)) });
+          if (e.refund) flights.push({ kind: 'chips', amount: e.refund.amount, from: g.pot, to: g.betOf(e.refund.seat), refund: true });
+          for (const [seat, amount] of Object.entries(winners)) flights.push({ kind: 'chips', amount, from: g.pot, to: g.posOf(Number(seat)) });
           later(() => { addFlights(flights, 700); audio.collect(); }, e.showdown ? 500 : 250);
           later(() => dispatch({ type: 'fn', fn: (x) => ({ ...x, pot: 0, bets: {} }) }), e.showdown ? 520 : 270);
         }
@@ -218,11 +221,17 @@ export function useGame(session, onSessionLost) {
   }, [geometry, addFlights, later, toast]);
 
   // Queue an event on the animation timeline.
+  // Events are played back sequentially. If a burst arrives (tab was stalled or
+  // hidden) the timeline compresses so the table never lags far behind reality.
   const enqueue = useCallback((e) => {
     const now = performance.now();
+    e._recv = now;
     if (document.hidden) { clock.current = now; apply(e); return; }
+    const lag = clock.current - now;
+    if (lag > 4000) { clock.current = now; apply(e); return; }
+    const factor = lag > 1500 ? 0.25 : 1;
     const startAt = Math.max(now, clock.current);
-    clock.current = startAt + durationOf(e);
+    clock.current = startAt + durationOf(e) * factor;
     const delay = startAt - now;
     if (delay <= 4) apply(e); else later(() => apply(e), delay);
   }, [apply, later]);
@@ -250,8 +259,10 @@ export function useGame(session, onSessionLost) {
       const idle = performance.now() >= clock.current;
       if (!idle && !force) return;
       const h = s.hand;
-      dispatch({ type: 'fn', fn: (a) => {
-        if (!h) return (a.handActive || a.result || Object.keys(a.winners).length) ? { ...initialAnim, handNumber: s.handNumber } : a;
+      dispatch({ type: 'fn', fn: (prev) => {
+        if (!h) return (prev.handActive || prev.result || Object.keys(prev.winners).length) ? { ...initialAnim, handNumber: s.handNumber } : prev;
+        // A different hand than the one we were animating: start clean.
+        const a = prev.handNumber === h.number ? prev : { ...initialAnim, handNumber: h.number };
         const bets = {};
         let streetTotal = 0;
         for (const p of s.seats) if (p && p.inHand && p.streetBet > 0) { bets[p.seat] = p.streetBet; streetTotal += p.streetBet; }
@@ -269,13 +280,13 @@ export function useGame(session, onSessionLost) {
           runningOut: h.runningOut, runItTwice: h.runItTwice,
           turnSeat: h.actionSeat,
           result: h.finished ? (a.result || s.lastResult) : null,
-          winners: h.finished && s.lastResult ? Object.fromEntries(s.lastResult.winners.map((w) => [w.seat, w.amount])) : a.winners,
-          showdown: h.finished ? !!(s.lastResult && s.lastResult.showdown) : a.showdown,
+          winners: h.finished && s.lastResult ? Object.fromEntries(s.lastResult.winners.map((w) => [w.seat, w.amount])) : {},
+          showdown: h.finished ? !!(s.lastResult && s.lastResult.showdown) : h.runningOut,
         };
       } });
     };
 
-    const onState = (s) => { stateRef.current = s; setState(s); syncFromState(s, false); };
+    const onState = (s) => { if (import.meta.env.DEV) console.debug('[state]', s.seq, s.hand ? `${s.hand.phase}${s.hand.finished ? '/finished' : ''}` : 'no-hand', 'idle=', performance.now() >= clock.current); stateRef.current = s; setState(s); syncFromState(s, false); };
     const onEvent = (e) => {
       if (e.type === 'chat') {
         setChat((c) => [...c.slice(-199), e.message]);

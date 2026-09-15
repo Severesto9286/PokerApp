@@ -159,6 +159,12 @@ class Table {
     const p = this.getPlayer(id);
     if (!p) return;
     p.connected = connected;
+    // Players we sat out because they dropped come straight back in when they return.
+    if (connected && p.autoSatOut) {
+      p.autoSatOut = false;
+      if (p.stack > 0 && !p.leaving) p.sittingOut = false;
+      if (!this.hand && this.config.autoDeal && this.canStartHand()) this._scheduleAutoDeal();
+    }
     this.emit('presence', { playerId: id, connected });
   }
 
@@ -166,6 +172,7 @@ class Table {
     const p = this.getPlayer(id);
     if (!p) return { error: 'Not seated' };
     p.sittingOut = !!sitOut;
+    p.autoSatOut = false;
     this.emit('sitOut', { playerId: id, sittingOut: p.sittingOut });
     if (!p.sittingOut && !this.hand && this.config.autoDeal && this.canStartHand()) this._scheduleAutoDeal();
     return { ok: true };
@@ -399,7 +406,7 @@ class Table {
     if (hand.usingTimeBank) p.timeBank = 0;
     const legal = this.legalActions(p.id);
     const action = legal && legal.canCheck ? 'check' : 'fold';
-    if (!p.connected) p.sittingOut = true;
+    if (!p.connected) { p.sittingOut = true; p.autoSatOut = true; }
     this.act(p.id, action, 0, { auto: true });
   }
 

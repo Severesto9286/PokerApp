@@ -86,5 +86,11 @@
 /* Responsive */
 @media (max-width: 900px) {
   .panel.is-open { position: fixed; right: 0; top: 0; bottom: 0; width: min(360px, 100%); z-index: 40; box-shadow: -10px 0 30px rgba(0,0,0,.5); }
-  .tableinfo-hand, .codebtn-label { display: none; }
+  .tableinfo-hand, .codebtn-label, .codebtn-copy { display: none; }
+  .brand span + span, .brand { font-size: 0; }
+  .brand .brand-mark { font-size: 15px; }
+  .topbar { padding: 0 10px; }
+  .topbar-left, .topbar-right { gap: 8px; }
+  .toasts { top: 56px; width: calc(100% - 24px); }
+  .toast { font-size: 13px; text-align: center; }
 }

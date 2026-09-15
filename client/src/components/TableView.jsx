@@ -3,24 +3,32 @@ import Card from './Card';
 import Seat from './Seat';
 import ActionBar from './ActionBar';
 import { ChipStack, PotPile } from './Chips';
-import { STAGE_W, STAGE_H, TABLE, BOARD, POT, POT_TWO_BOARDS, seatPositions, betPosition, buttonPosition, slotFor } from '../lib/layout';
+import { layoutFor, setLayoutMode, seatPositions, betPosition, buttonPosition, slotFor } from '../lib/layout';
 import { fmtAmount, fmt } from '../lib/format';
+import { evaluate, shortName } from '../lib/hand';
 
-function useStageScale(ref) {
-  const [scale, setScale] = useState(1);
+// Pick the stage that best fits the available area and scale it to fit.
+const RANK_PLURAL = { A: 'Aces', K: 'Kings', Q: 'Queens', J: 'Jacks', T: 'Tens', 9: 'Nines', 8: 'Eights', 7: 'Sevens', 6: 'Sixes', 5: 'Fives', 4: 'Fours', 3: 'Threes', 2: 'Twos' };
+function describeRank(r) { return RANK_PLURAL[r] || r; }
+
+function useStage(ref) {
+  const [stage, setStage] = useState({ mode: 'landscape', scale: 1 });
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return undefined;
     const update = () => {
       const r = el.getBoundingClientRect();
-      setScale(Math.min(r.width / STAGE_W, r.height / STAGE_H));
+      const mode = r.height > r.width * 1.05 ? 'portrait' : 'landscape';
+      const L = layoutFor(mode);
+      setLayoutMode(mode);
+      setStage({ mode, scale: Math.min(r.width / L.W, r.height / L.H) });
     };
     update();
     const ro = new ResizeObserver(update);
     ro.observe(el);
     return () => ro.disconnect();
   }, [ref]);
-  return scale;
+  return stage;
 }
 
 function Flights({ flights, bb, inBB }) {
@@ -83,7 +91,10 @@ function ResultBanner({ result, bb, inBB, seats }) {
 export default function TableView({ game, prefs, onOpenPanel, panelOpen, unread }) {
   const { state, me, anim, act, send, serverOffset } = game;
   const wrapRef = useRef(null);
-  const scale = useStageScale(wrapRef);
+  const { mode, scale } = useStage(wrapRef);
+  const L = layoutFor(mode);
+  const { TABLE, BOARD, POT, POT_TWO_BOARDS } = L;
+  const portrait = mode === 'portrait';
   const [preAction, setPreAction] = useState(null);
   const [copied, setCopied] = useState(false);
 
@@ -92,7 +103,7 @@ export default function TableView({ game, prefs, onOpenPanel, panelOpen, unread 
   const inBB = prefs.inBB;
   const maxSeats = state.seats.length;
   const heroSeat = me ? me.seat : 0;
-  const positions = seatPositions(maxSeats);
+  const positions = seatPositions(maxSeats, L);
   const posOf = (seat) => positions[slotFor(seat, heroSeat, maxSeats)];
   const myTurn = !!(hand && me && hand.actionSeat === me.seat && !hand.finished);
   const legal = myTurn ? state.legal : null;
@@ -116,6 +127,20 @@ export default function TableView({ game, prefs, onOpenPanel, panelOpen, unread 
     return set;
   }, [anim.result]);
 
+  // Live hand-strength hint for the hero (like GG's "Pair of Sevens" label).
+  const heroHint = useMemo(() => {
+    if (!hand || !me || !me.cards || me.cards.length < 2 || me.folded || anim.result) return null;
+    const board = anim.board;
+    if (hand.variant === 'PLO' && board.length < 3) return null;
+    const ev = evaluate(me.cards, board, hand.variant);
+    if (!ev) {
+      // Preflop Hold'em: describe the hole cards.
+      const [a, b] = me.cards;
+      if (a[0] === b[0]) return `Pair of ${describeRank(a[0])}`;
+      return `${a[0] === 'T' ? '10' : a[0]}${b[0] === 'T' ? '10' : b[0]}${a[1] === b[1] ? ' suited' : ''}`;
+    }
+    return ev.name;
+  }, [hand?.variant, hand?.number, me?.cards, me?.folded, anim.board, anim.result]);
   const winnerSeats = anim.winners;
   const showdownActive = !!anim.result;
   const dealerPos = hand ? posOf(hand.dealerSeat) : null;
@@ -155,7 +180,7 @@ export default function TableView({ game, prefs, onOpenPanel, panelOpen, unread 
       </div>
 
       <div className="stage-wrap" ref={wrapRef}>
-        <div className="stage" style={{ width: STAGE_W, height: STAGE_H, transform: `translate(-50%, -50%) scale(${scale})` }}>
+        <div className={`stage ${portrait ? 'is-portrait' : 'is-landscape'}`} style={{ width: L.W, height: L.H, transform: `translate(-50%, -50%) scale(${scale})` }}>
           <div className="table-rail" style={{ left: TABLE.cx - TABLE.w / 2, top: TABLE.cy - TABLE.h / 2, width: TABLE.w, height: TABLE.h }}>
             <div className="table-felt">
               <div className="table-logo"><span>♠</span>FELT &amp; FRIENDS</div>
@@ -186,19 +211,19 @@ export default function TableView({ game, prefs, onOpenPanel, panelOpen, unread 
             <div className="board" style={{ left: BOARD.x, top: BOARD.y }}>
               {anim.board2 ? (
                 <>
-                  <BoardRow cards={anim.board} keys={anim.boardKeys} size="md" fourColor={prefs.fourColor} highlight={highlight && new Set(anim.result.winners.filter((w) => w.board === 1).flatMap((w) => w.handCards || []))} dim={showdownActive} y={-96} />
-                  <BoardRow cards={anim.board2} keys={anim.boardKeys} size="md" fourColor={prefs.fourColor} highlight={highlight && new Set(anim.result.winners.filter((w) => w.board === 2).flatMap((w) => w.handCards || []))} dim={showdownActive} y={0} />
-                  <div className="board-tag" style={{ top: -66 }}>{anim.runItTwice ? 'RUN 1' : 'BOARD 1'}</div>
-                  <div className="board-tag" style={{ top: 30 }}>{anim.runItTwice ? 'RUN 2' : 'BOARD 2'}</div>
+                  <BoardRow cards={anim.board} keys={anim.boardKeys} size={L.boardSize2} fourColor={prefs.fourColor} highlight={highlight && new Set(anim.result.winners.filter((w) => w.board === 1).flatMap((w) => w.handCards || []))} dim={showdownActive} y={portrait ? -78 : -96} />
+                  <BoardRow cards={anim.board2} keys={anim.boardKeys} size={L.boardSize2} fourColor={prefs.fourColor} highlight={highlight && new Set(anim.result.winners.filter((w) => w.board === 2).flatMap((w) => w.handCards || []))} dim={showdownActive} y={0} />
+                  <div className="board-tag" style={{ top: portrait ? -52 : -66 }}>{anim.runItTwice ? 'RUN 1' : 'BOARD 1'}</div>
+                  <div className="board-tag" style={{ top: portrait ? 26 : 30 }}>{anim.runItTwice ? 'RUN 2' : 'BOARD 2'}</div>
                 </>
               ) : (
-                <BoardRow cards={anim.board} keys={anim.boardKeys} size="lg" fourColor={prefs.fourColor} highlight={highlight} dim={showdownActive && !!highlight && highlight.size > 0} y={-56} />
+                <BoardRow cards={anim.board} keys={anim.boardKeys} size={L.boardSize} fourColor={prefs.fourColor} highlight={highlight} dim={showdownActive && !!highlight && highlight.size > 0} y={portrait ? -41 : -56} />
               )}
             </div>
           )}
 
           {/* Result banner */}
-          {anim.result && <div className="banner-wrap" style={{ left: BOARD.x, top: BOARD.y + (anim.board2 ? 100 : 68) }}><ResultBanner result={anim.result} bb={bb} inBB={inBB} seats={state.seats} /></div>}
+          {anim.result && <div className="banner-wrap" style={{ left: BOARD.x, top: BOARD.y + (anim.board2 ? (portrait ? 80 : 100) : (portrait ? 54 : 68)) }}><ResultBanner result={anim.result} bb={bb} inBB={inBB} seats={state.seats} /></div>}
 
           {/* Waiting / host prompts */}
           {!hand && (
@@ -219,13 +244,13 @@ export default function TableView({ game, prefs, onOpenPanel, panelOpen, unread 
 
           {/* Bets */}
           {Object.entries(anim.bets).map(([seat, amount]) => amount > 0 && (
-            <div key={seat} className="bet" style={{ left: betPosition(posOf(Number(seat)))[0], top: betPosition(posOf(Number(seat)))[1] }}>
+            <div key={seat} className="bet" style={{ left: betPosition(posOf(Number(seat)), L)[0], top: betPosition(posOf(Number(seat)), L)[1] }}>
               <ChipStack amount={amount} bb={bb} inBB={inBB} size={20} />
             </div>
           ))}
 
           {/* Dealer button */}
-          {hand && dealerPos && <div className="dealer-btn" style={{ left: buttonPosition(dealerPos)[0], top: buttonPosition(dealerPos)[1] }}>D</div>}
+          {hand && dealerPos && <div className="dealer-btn" style={{ left: buttonPosition(dealerPos, L)[0], top: buttonPosition(dealerPos, L)[1] }}>D</div>}
 
           {/* Seats */}
           {state.seats.map((p) => p && (
@@ -241,7 +266,8 @@ export default function TableView({ game, prefs, onOpenPanel, panelOpen, unread 
               showdownDim={showdownActive && anim.result.showdown && !winnerSeats[p.seat] && !p.folded && p.inHand}
               handName={showdownActive && anim.result.showdown ? (anim.result.reveals.find((r) => r.seat === p.seat)?.hands.map((h) => h.name).filter((v, i, a) => a.indexOf(v) === i).join(' / ') || null) : null}
               fourColor={prefs.fourColor} bb={bb} inBB={inBB}
-              dealing={anim.dealing} dealerPos={dealerPos} variant={hand?.variant}
+              dealing={anim.dealing} dealerPos={dealerPos} variant={hand?.variant} compact={portrait}
+              highlightCards={highlight} heroHint={p.id === state.you ? heroHint : null}
               sittingOutNext={p.sittingOut && p.inHand} />
           ))}
 

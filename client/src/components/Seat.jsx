@@ -34,7 +34,8 @@ function TimerRing({ deadline, total, serverOffset, radius = 40, isHero }) {
 export default function Seat({
   player, pos, isHero, isTurn, deadline, actionTime, usingTimeBank, serverOffset,
   cards, folded, tag, winAmount, showdownDim, handName, fourColor, bb, inBB,
-  dealing, dealerPos, isWinner, revealed, variant, onClick, sittingOutNext,
+  dealing, dealerPos, isWinner, revealed, variant, onClick, sittingOutNext, compact = false,
+  highlightCards = null, heroHint = null,
 }) {
   const av = avatarOf(player.avatar);
   const [x, y] = pos;
@@ -58,7 +59,7 @@ export default function Seat({
   const tagClass = tag ? (tag.action === 'fold' ? 'tag-fold' : tag.action === 'check' ? 'tag-check' : tag.action === 'call' ? 'tag-call' : tag.allIn ? 'tag-allin' : 'tag-raise') : '';
   const tagText = tag ? (tag.allIn ? 'ALL IN' : ACTION_LABEL[tag.action]) : '';
 
-  const cardSize = isHero ? 'lg' : faceUp ? 'sm' : 'xs';
+  const cardSize = isHero ? (compact ? 'md' : 'lg') : faceUp ? (compact ? 'xs' : 'sm') : 'xs';
   const nCards = faceUp ? cards.length : cardCount;
 
   return (
@@ -72,15 +73,17 @@ export default function Seat({
               flipDelay={isHero && isDealing ? 420 + i * 90 + dealIdxBase * 60 : (!isHero && faceUp && revealed ? 60 + i * 120 : 0)}
               dealFrom={isDealing ? dealFrom : null}
               dealIndex={isDealing ? dealIdxBase + i * dealing.seats.length : null}
-              dim={showdownDim} />
+              highlight={!!(faceUp && highlightCards && highlightCards.has(cards[i]))}
+              dim={showdownDim || (faceUp && highlightCards && highlightCards.size > 0 && !highlightCards.has(cards[i]) && !isHero)} />
           ))}
         </div>
       )}
-      {inHand && hasFolded && nCards > 0 && !isHero && (
-        <div className="seat-cards is-folding n-2">
-          <Card card={null} faceDown size="xs" /><Card card={null} faceDown size="xs" />
+      {inHand && hasFolded && nCards > 0 && (
+        <div className={`seat-cards is-folding n-${nCards} ${isHero ? 'hero-cards' : ''}`}>
+          {Array.from({ length: nCards }).map((_, i) => <Card key={i} card={isHero && cards ? cards[i] : null} faceDown={!isHero} size={isHero ? cardSize : 'xs'} fourColor={fourColor} />)}
         </div>
       )}
+      {isHero && heroHint && inHand && !hasFolded && <div className="hero-hint">{heroHint}</div>}
       <div className="seat-avatar" style={{ background: av.bg }}>
         <span className="seat-emoji">{av.emoji}</span>
         {isTurn && deadline && <TimerRing deadline={deadline} total={total} serverOffset={serverOffset} isHero={isHero} />}

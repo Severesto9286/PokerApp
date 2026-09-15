@@ -7,7 +7,14 @@ export default function ActionBar({ legal, hand, bb, inBB, onAct, preAction, set
   const [raiseOpen, setRaiseOpen] = useState(false);
   const [amount, setAmount] = useState(0);
   const [typed, setTyped] = useState('');
+  const [armed, setArmed] = useState(false); // ignore taps in the first moments after the buttons appear
   const inputRef = useRef(null);
+  useEffect(() => {
+    if (!myTurn) { setArmed(false); return undefined; }
+    const t = setTimeout(() => setArmed(true), 350);
+    return () => clearTimeout(t);
+  }, [myTurn]);
+  const guarded = (fn) => (...args) => { if (armed) fn(...args); };
 
   const preflop = hand?.phase === 'preflop';
   const step = bb >= 10 ? Math.max(1, Math.round(bb / 2)) : 1;
@@ -42,7 +49,7 @@ export default function ActionBar({ legal, hand, bb, inBB, onAct, preAction, set
     } else if (preflop && !hand?.bombPot) {
       list.push(['2.2x', currentBet * 2.2], ['3x', currentBet * 3], ['Pot', currentBet + potAfterCall]);
     } else {
-      list.push(['⅓ Pot', currentBet + potAfterCall / 3], ['½ Pot', currentBet + potAfterCall / 2], ['¾ Pot', currentBet + potAfterCall * 0.75], ['Pot', currentBet + potAfterCall]);
+      list.push(['1/3 Pot', currentBet + potAfterCall / 3], ['½ Pot', currentBet + potAfterCall / 2], ['¾ Pot', currentBet + potAfterCall * 0.75], ['Pot', currentBet + potAfterCall]);
     }
     if (!potLimit) list.push(['All in', maxRaiseTo]);
     else list.push(['Max', maxRaiseTo]);
@@ -102,17 +109,17 @@ export default function ActionBar({ legal, hand, bb, inBB, onAct, preAction, set
         </div>
       )}
       <div className="action-buttons">
-        <button className="abtn abtn-fold" onClick={() => onAct('fold')}>
+        <button className="abtn abtn-fold" onClick={guarded(() => onAct('fold'))}>
           <span className="abtn-title">Fold</span>
           <span className="abtn-key">F</span>
         </button>
         {canCheck ? (
-          <button className="abtn abtn-check" onClick={() => onAct('check')}>
+          <button className="abtn abtn-check" onClick={guarded(() => onAct('check'))}>
             <span className="abtn-title">Check</span>
             <span className="abtn-key">C</span>
           </button>
         ) : (
-          <button className="abtn abtn-call" onClick={() => onAct('call')}>
+          <button className="abtn abtn-call" onClick={guarded(() => onAct('call'))}>
             <span className="abtn-title">{callIsAllIn ? 'All in' : 'Call'}</span>
             <span className="abtn-sub">{fmtAmount(callAmount, bb, inBB)}</span>
             <span className="abtn-key">C</span>
@@ -120,7 +127,7 @@ export default function ActionBar({ legal, hand, bb, inBB, onAct, preAction, set
         )}
         {canRaise && (
           raiseOpen ? (
-            <button className={`abtn abtn-raise ${isAllInAmount ? 'is-allin' : ''}`} onClick={() => onAct(currentBet === 0 ? 'bet' : 'raise', amount)}>
+            <button className={`abtn abtn-raise ${isAllInAmount ? 'is-allin' : ''}`} onClick={guarded(() => onAct(currentBet === 0 ? 'bet' : 'raise', amount))}>
               <span className="abtn-title">{isAllInAmount ? 'All in' : raiseLabel}</span>
               <span className="abtn-sub">{fmtAmount(amount, bb, inBB)}</span>
             </button>

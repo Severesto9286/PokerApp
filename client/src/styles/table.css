@@ -85,7 +85,7 @@
 .banner-wrap { transform: translateX(-50%); z-index: 8; }
 .banner {
   background: rgba(12,12,12,.85); border: 1px solid rgba(242,182,50,.55); color: #fff; padding: 10px 22px; border-radius: 12px;
-  font-size: 16px; font-weight: 600; text-align: center; white-space: nowrap; box-shadow: 0 8px 30px rgba(0,0,0,.6), 0 0 30px rgba(242,182,50,.15);
+  font-size: 16px; font-weight: 600; text-align: center; white-space: normal; max-width: 720px; box-shadow: 0 8px 30px rgba(0,0,0,.6), 0 0 30px rgba(242,182,50,.15);
   animation: banner-in .4s cubic-bezier(.2,.9,.2,1.2);
 }
 .banner-line + .banner-line { margin-top: 4px; }
@@ -271,3 +271,50 @@
 .prebox { width: 14px; height: 14px; border-radius: 3px; border: 2px solid #666; }
 .prebtn.is-on { border-color: var(--green); color: #fff; }
 .prebtn.is-on .prebox { background: var(--green); border-color: var(--green); }
+
+/* ── Portrait stage (phones) ───────────────────────────────────────────── */
+.stage.is-portrait .table-rail { padding: 16px; }
+.stage.is-portrait .table-logo { font-size: 26px; letter-spacing: .2em; flex-direction: column; gap: 4px; }
+.stage.is-portrait .table-logo span { font-size: 40px; }
+.stage.is-portrait .table-variant { bottom: 18px; font-size: 12px; }
+.stage.is-portrait .table-msg-title { font-size: 24px; }
+.stage.is-portrait .board-row { gap: 6px; }
+.stage.is-portrait .board-tag { left: -180px; }
+.stage.is-portrait .banner { font-size: 13px; padding: 8px 14px; white-space: normal; max-width: 340px; }
+.stage.is-portrait .pot-label { font-size: 12px; padding: 3px 10px; }
+.stage.is-portrait .pot-label b { font-size: 14px; }
+.stage.is-portrait .potpile { height: 30px; }
+.stage.is-portrait .seat-avatar { left: -32px; top: -32px; width: 64px; height: 64px; }
+.stage.is-portrait .seat-emoji { font-size: 32px; }
+.stage.is-portrait .seat-ring { inset: -8px; width: 80px; height: 80px; }
+.stage.is-portrait .seat-pill { left: -54px; top: 30px; width: 108px; min-height: 38px; padding: 3px 6px; }
+.stage.is-portrait .seat-name { font-size: 11px; }
+.stage.is-portrait .seat-stack { font-size: 15px; }
+.stage.is-portrait .seat-tag { font-size: 14px; }
+.stage.is-portrait .seat-handname { top: 74px; font-size: 10px; padding: 2px 8px; }
+.stage.is-portrait .seat-note { top: 76px; }
+.stage.is-portrait .seat-cards:not(.is-up) { top: -14px; }
+.stage.is-portrait .seat-cards.is-up { top: -34px; }
+.stage.is-portrait .seat.is-hero .seat-cards.hero-cards { top: -36px; }
+.stage.is-portrait .seat.is-hero .seat-cards.hero-cards .card { margin-right: -10px; }
+.stage.is-portrait .seat.is-hero .seat-cards.hero-cards.n-4 .card { margin-right: -16px; }
+.stage.is-portrait .seat-empty { width: 58px; height: 58px; margin-left: -29px; margin-top: -29px; font-size: 10px; }
+.stage.is-portrait .dealer-btn { width: 24px; height: 24px; margin-left: -12px; margin-top: -12px; font-size: 14px; }
+.stage.is-portrait .quickopts { left: 14px; bottom: auto; top: 10px; flex-direction: row; flex-wrap: wrap; gap: 6px 14px; max-width: 320px; }
+.stage.is-portrait .quickopts .chk { font-size: 12px; }
+.stage.is-portrait .actionbar { left: 12px; right: 12px; bottom: 10px; align-items: stretch; }
+.stage.is-portrait .action-buttons { gap: 8px; }
+.stage.is-portrait .abtn { flex: 1; width: auto; height: 60px; }
+.stage.is-portrait .abtn-title { font-size: 18px; }
+.stage.is-portrait .abtn-key { display: none; }
+.stage.is-portrait .raise-panel { width: auto; padding: 10px; }
+.stage.is-portrait .raise-presets { gap: 4px; }
+.stage.is-portrait .preset { font-size: 12px; padding: 7px 2px; }
+.stage.is-portrait .raise-input { width: 76px; font-size: 16px; }
+.stage.is-portrait .actionbar.is-pre { bottom: 10px; justify-content: stretch; }
+.stage.is-portrait .prebtn { flex: 1; justify-content: center; padding: 12px 6px; }
+
+.hero-hint { position: absolute; left: 50%; top: -158px; transform: translate(-50%, -100%); white-space: nowrap; font-size: 12px; font-weight: 600; color: #e8e8e8; background: rgba(0,0,0,.6); padding: 3px 10px; border-radius: 999px; border: 1px solid rgba(255,255,255,.14); z-index: 4; pointer-events: none; }
+.stage.is-portrait .hero-hint { font-size: 11px; top: -122px; }
+.seat.is-hero .seat-cards.hero-cards.is-folding { animation: fold-away-hero .5s ease-in both; }
+@keyframes fold-away-hero { to { opacity: 0; transform: translate(-50%, -180%) scale(.6) rotate(6deg); } }

@@ -118,7 +118,11 @@ export function useGame(session, onSessionLost) {
         if (e.variant === 'PLO') { audio.notify(); toast(e.bombPot ? '💣 Bomb pot! PLO, everyone posts, straight to the flop' : '🃏 PLO hand — four cards, pot limit', 'variant', 3600); }
         break;
       case 'post':
-        dispatch({ type: 'fn', fn: (a) => ({ ...a, bets: { ...a.bets, [e.seat]: e.streetBet ?? ((a.bets[e.seat] || 0) + e.amount) } }) });
+        dispatch({ type: 'fn', fn: (a) => ({
+          ...a,
+          bets: { ...a.bets, [e.seat]: e.streetBet ?? ((a.bets[e.seat] || 0) + e.amount) },
+          tags: e.kind === 'straddle' ? { ...a.tags, [e.seat]: { action: 'straddle', amount: e.amount, at: Date.now() } } : a.tags,
+        }) });
         if (e.kind === 'bomb' || e.kind === 'ante') { if (e.seat === (s?.hand?.dealerSeat ?? e.seat)) audio.chips(e.amount); }
         else audio.chips(e.amount);
         break;
@@ -182,7 +186,7 @@ export function useGame(session, onSessionLost) {
       case 'reveal': {
         const reveals = {};
         for (const r of e.seats) reveals[r.seat] = r.cards;
-        dispatch({ type: 'fn', fn: (a) => ({ ...a, reveals: { ...a.reveals, ...reveals }, runningOut: true, runItTwice: e.runItTwice, showdown: true }) });
+        dispatch({ type: 'fn', fn: (a) => ({ ...a, reveals: { ...a.reveals, ...reveals }, runningOut: true, showdown: true }) });
         audio.setTension(0.7);
         for (let i = 0; i < e.seats.length; i++) later(() => audio.flip(), i * 120);
         break;
@@ -213,6 +217,25 @@ export function useGame(session, onSessionLost) {
       case 'turn':
         dispatch({ type: 'patch', patch: { turnSeat: e.seat } });
         if (e.seat === mySeat) audio.yourTurn();
+        break;
+      case 'showCards':
+        dispatch({ type: 'fn', fn: (a) => ({ ...a, reveals: { ...a.reveals, [e.seat]: e.cards } }) });
+        audio.flip();
+        break;
+      case 'ritOffer':
+        if (e.seats.includes(mySeat)) audio.notify();
+        break;
+      case 'ritDecided':
+        toast(e.runItTwice ? '🔁 Running it twice' : 'Running it once', 'info', 2200);
+        break;
+      case 'rebuyRequest':
+        if (s?.isHost && e.playerId !== s.you) { audio.notify(); toast(`${e.name} asks to rebuy ${e.amount}`, 'warn', 3500); }
+        break;
+      case 'rebuyApproved':
+        if (e.playerId === s?.you) toast(e.pending ? `Rebuy approved — ${e.amount} arrives after this hand` : `Rebuy approved: +${e.amount}`, 'success');
+        break;
+      case 'rebuyDenied':
+        if (e.playerId === s?.you) toast('The host declined your rebuy', 'error');
         break;
       case 'timeBank':
         if (e.seat === mySeat) toast('⏳ Time bank activated', 'warn', 2000);

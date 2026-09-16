@@ -67,6 +67,31 @@ function BoardRow({ cards, keys, size, fourColor, highlight, dim, y }) {
   );
 }
 
+function RitPrompt({ rit, mySeat, seats, serverOffset, onVote }) {
+  const [, tick] = useState(0);
+  useEffect(() => { const id = setInterval(() => tick((n) => n + 1), 250); return () => clearInterval(id); }, []);
+  const left = Math.max(0, Math.ceil((rit.deadline - (Date.now() + serverOffset)) / 1000));
+  const involved = mySeat !== null && rit.seats.includes(mySeat);
+  const mine = involved ? rit.votes[mySeat] : undefined;
+  const nameOf = (seat) => seats[seat]?.name || '?';
+  const waiting = rit.seats.filter((s) => rit.votes[s] === null);
+  return (
+    <div className={`rit ${involved ? 'is-mine' : ''}`}>
+      <div className="rit-title">Run it twice?</div>
+      {involved && mine === null ? (
+        <div className="rit-actions">
+          <button className="btn btn-primary" onClick={() => onVote(true)}>Yes, run it twice</button>
+          <button className="btn btn-ghost" onClick={() => onVote(false)}>No, once</button>
+        </div>
+      ) : (
+        <div className="rit-status">{involved ? `You said ${mine ? 'yes' : 'no'} · ` : ''}waiting for {waiting.map(nameOf).join(', ') || '…'}</div>
+      )}
+      <div className="rit-timer"><div className="rit-timer-bar" style={{ width: `${Math.min(100, (left / 10) * 100)}%` }} /><span>{left}s</span></div>
+      <div className="rit-hint">Everyone in the pot has to agree.</div>
+    </div>
+  );
+}
+
 function ResultBanner({ result, bb, inBB, seats }) {
   if (!result) return null;
   const lines = [];
@@ -187,7 +212,7 @@ export default function TableView({ game, prefs, onOpenPanel, panelOpen, unread 
           </button>
           <button className={`iconbtn ${panelOpen ? 'is-on' : ''}`} onClick={onOpenPanel} title="Chat, history, settings">
             <span>☰</span>{unread > 0 && !panelOpen && <span className="iconbtn-badge">{unread}</span>}
-            {state.pendingCount > 0 && state.isHost && <span className="iconbtn-badge is-host">{state.pendingCount}</span>}
+            {state.isHost && state.pendingCount + state.rebuyRequests.length > 0 && !panelOpen && <span className="iconbtn-badge is-host">{state.pendingCount + state.rebuyRequests.length}</span>}
           </button>
         </div>
       </div>
@@ -290,15 +315,26 @@ export default function TableView({ game, prefs, onOpenPanel, panelOpen, unread 
           {me && (
             <div className="quickopts">
               <label className="chk"><input type="checkbox" checked={!!me.sittingOut} onChange={(e) => send('sitOut', { sitOut: e.target.checked })} /><span>Sit out next hand</span></label>
-              <label className="chk"><input type="checkbox" checked={!!me.runItTwice} onChange={(e) => send('prefs', { runItTwice: e.target.checked })} /><span>Run it twice</span></label>
-              {me.stack === 0 && !me.inHand && state.config.allowRebuy && (
-                <button className="btn btn-gold btn-sm" onClick={() => send('rebuy', { amount: state.config.buyIn })}>Rebuy {fmt(state.config.buyIn)}</button>
+              {maxSeats > 2 && <label className="chk" title="Post a live 2x big blind from under the gun before the cards are dealt"><input type="checkbox" checked={!!me.straddle} onChange={(e) => send('prefs', { straddle: e.target.checked })} /><span>Straddle</span></label>}
+              {state.config.allowRebuy && me.rebuyRequested > 0 && (
+                <div className="rebuy-pending">Rebuy of {fmt(me.rebuyRequested)} requested — waiting for the host <button className="linkbtn" onClick={() => send('rebuy:cancel')}>cancel</button></div>
               )}
-              {me.stack > 0 && me.stack < state.config.buyIn * 0.4 && state.config.allowRebuy && (
-                <button className="btn btn-ghost btn-sm" onClick={() => send('rebuy', { amount: state.config.buyIn - me.stack })}>Top up to {fmt(state.config.buyIn)}{me.inHand ? ' (next hand)' : ''}</button>
+              {state.config.allowRebuy && !me.rebuyRequested && me.stack === 0 && !me.inHand && (
+                <button className="btn btn-gold btn-sm" onClick={() => send('rebuy', { amount: state.config.buyIn })}>Request rebuy {fmt(state.config.buyIn)}</button>
+              )}
+              {state.config.allowRebuy && !me.rebuyRequested && me.stack > 0 && me.stack < state.config.buyIn * 0.4 && (
+                <button className="btn btn-ghost btn-sm" onClick={() => send('rebuy', { amount: state.config.buyIn - me.stack })}>Request top-up to {fmt(state.config.buyIn)}</button>
               )}
             </div>
           )}
+
+          {/* Show your cards after winning without a showdown */}
+          {me && hand && hand.canShow && !anim.reveals[me.seat] && (
+            <div className="actionbar"><button className="btn btn-gold btn-lg showbtn" onClick={() => send('showCards')}>Show my cards</button></div>
+          )}
+
+          {/* Run it twice? */}
+          {hand && hand.rit && <RitPrompt rit={hand.rit} mySeat={me ? me.seat : null} seats={state.seats} serverOffset={serverOffset.current} onVote={(yes) => send('ritVote', { yes })} />}
 
           {/* Action bar */}
           {me && hand && !hand.finished && me.inHand && !me.folded && !me.allIn && (

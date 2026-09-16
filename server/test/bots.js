@@ -1,7 +1,7 @@
 'use strict';
 
 // Dev helper: seat a few bots at a table so you can try the UI alone.
-//   node test/bots.js <TABLECODE> [count=3] [server=http://localhost:3001] [style=normal|maniac|calling]
+//   node test/bots.js <TABLECODE> [count=3] [server=http://localhost:3001] [style=normal|maniac|calling|tight]
 // Bots act after a short random delay: mostly check/call, sometimes raise, occasionally shove.
 
 const { io } = require('socket.io-client');
@@ -34,6 +34,9 @@ for (let i = 0; i < count; i++) {
     const mine = s.seats.find((p) => p && p.id === me);
     if (mine) stack = mine.stack;
     if (!s.hand || s.hand.finished) return;
+    if (s.hand.rit && mine && s.hand.rit.votes[mine.seat] === null) {
+      setTimeout(() => sock.emit('ritVote', { yes: Math.random() < 0.8 }), 500 + Math.random() * 2000);
+    }
     const seat = s.seats.find((p) => p && p.id === me);
     if (seat) stack = seat.stack;
     if (!seat || s.hand.actionSeat !== seat.seat || !s.legal) return;
@@ -46,7 +49,7 @@ for (let i = 0; i < count; i++) {
       let action = legal.canCheck ? 'check' : 'call';
       let amount;
       const raiseChance = style === 'maniac' ? 0.45 : style === 'calling' ? 0.05 : 0.2;
-      const foldChance = style === 'calling' ? 0.02 : 0.15;
+      const foldChance = style === 'calling' ? 0.02 : style === 'tight' ? 0.85 : 0.15;
       if (legal.canRaise && r < raiseChance) {
         action = legal.currentBet === 0 ? 'bet' : 'raise';
         const sizes = [legal.minRaiseTo, Math.round(legal.currentBet + legal.potTotal * 0.6), Math.round(legal.currentBet + legal.potTotal), legal.maxRaiseTo];
@@ -64,7 +67,7 @@ for (let i = 0; i < count; i++) {
 
   sock.on('event', (e) => {
     if (e.type === 'handEnd' && me && stack === 0) {
-      setTimeout(() => sock.emit('rebuy', { amount: 200 }), 500);
+      setTimeout(() => sock.emit('rebuy', { amount: 200 }), 500); // asks the host
     }
     if (e.type === 'chat' && e.message.playerId !== me && Math.random() < 0.15) {
       setTimeout(() => sock.emit('chat', { text: pick(['gg', 'nice hand', 'lol', 'sigh', 'run good', '🔥']) }), 800 + Math.random() * 2000);

@@ -40,5 +40,5 @@ export function avatarOf(i) { return AVATARS[((Number(i) || 0) % AVATARS.length 
 
 export const ACTION_LABEL = {
   fold: 'Fold', check: 'Check', call: 'Call', bet: 'Bet', raise: 'Raise', allin: 'All-in',
-  sb: 'SB', bb: 'BB', ante: 'Ante', bomb: 'Bomb',
+  sb: 'SB', bb: 'BB', ante: 'Ante', bomb: 'Bomb', straddle: 'Straddle',
 };

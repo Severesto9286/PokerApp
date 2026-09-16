@@ -3,7 +3,10 @@
 Private online poker for you and your friends, styled after GGPoker. Fake chips, real drama.
 
 - **No Limit Hold'em** with occasional **Pot Limit Omaha** hands (frequency set by the host), either as normal PLO hands with blinds or as **bomb pots** (everyone antes, straight to the flop, optional double board)
-- Full rules engine: side pots, short all-in raise rules, heads-up blinds, pot-limit sizing, uncalled bet return, run it twice, time bank
+- Full rules engine: side pots, short all-in raise rules, heads-up blinds, pot-limit sizing, uncalled bet return, UTG straddle, time bank
+- Run it twice decided per hand: everyone in an all-in gets a 10-second yes/no prompt, and it only runs twice if they all agree
+- Win without a showdown and you can choose to show your cards; hand history only reveals what was actually shown (plus your own cards)
+- Rebuys are requests: players ask, the host approves the amount
 - GG-style table: stadium felt, avatars with timer rings, chip stacks, dealer button, dealt/flipped cards, chips flying to the pot and to the winner, showdown highlights, hand-name badges
 - Real soundtrack: a lounge-jazz playlist (Kevin MacLeod) that ducks under a looping tension track during all-ins and big pots, plus recorded card, chip and knock effects (Kenney) — see `client/public/audio/CREDITS.md`
 - Host controls: approve joins, blinds, antes, buy-ins, stacks, PLO frequency & style, timing, run-it-twice, auto-deal, pause, kick

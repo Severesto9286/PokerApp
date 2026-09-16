@@ -26,4 +26,4 @@ class ErrorBoundary extends React.Component {
 createRoot(document.getElementById('root')).render(<ErrorBoundary><App /></ErrorBoundary>);
 
 // Dev hook for poking the audio engine from the console.
-if (import.meta.env.DEV) import('./lib/audio').then((m) => { window.__ff = { audio: m.audio }; });
+if (import.meta.env.DEV) Promise.all([import('./lib/audio'), import('./lib/socket')]).then(([a, s]) => { window.__ff = { audio: a.audio, socket: s.socket, call: s.call }; });

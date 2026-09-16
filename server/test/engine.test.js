@@ -76,7 +76,7 @@ test('odd chips split to earliest winners', () => {
 });
 
 // ─── Table helpers ────────────────────────────────────────────────────────────
-const FAST = { revealDelay: 5, streetDelay: 5, riverDelay: 8, showdownHold: 10, foldWinHold: 10 };
+const FAST = { revealDelay: 5, streetDelay: 5, riverDelay: 8, showdownHold: 10, foldWinHold: 10, ritVote: 40 };
 
 // A rigged deck: cards are popped from the end, so list them in reverse deal order.
 function riggedDeck(topCards) {
@@ -177,7 +177,7 @@ test('all-in runout deals remaining streets with delays and reveals cards', asyn
   t.act('p1', 'call');
   assert.ok(events.find((e) => e.type === 'reveal'));
   assert.equal(t.hand.runningOut, true);
-  await sleep(300);
+  await sleep(300); // nobody answers the run-it-twice offer: it runs once
   const streets = events.filter((e) => e.type === 'street').map((e) => e.street);
   assert.ok(streets.includes('flop') && streets.includes('turn') && streets.includes('river'));
   const result = events.find((e) => e.type === 'result');
@@ -196,6 +196,9 @@ test('run it twice deals a second board when everyone opts in', async () => {
   t.act('p1', 'raise', 60);
   t.act('p0', 'allin');
   t.act('p1', 'call');
+  assert.ok(events.find((e) => e.type === 'ritOffer'), 'players are asked');
+  t.voteRunItTwice('p0', true);
+  t.voteRunItTwice('p1', true);
   await sleep(300);
   const result = events.find((e) => e.type === 'result');
   assert.equal(result.runItTwice, true);
@@ -207,12 +210,13 @@ test('run it twice deals a second board when everyone opts in', async () => {
   t.destroy();
 });
 
-test('run it twice is skipped when a player opts out', async () => {
+test('run it twice is skipped when a player says no (or does not answer in time)', async () => {
   const { t, events } = makeTable(2, { stacks: [100, 100] });
-  t.setRunItTwice('p1', false);
   t.startHand();
   t.act('p0', 'allin');
   t.act('p1', 'call');
+  t.voteRunItTwice('p0', true);
+  t.voteRunItTwice('p1', false);
   await sleep(300);
   const result = events.find((e) => e.type === 'result');
   assert.equal(result.runItTwice, false);
@@ -402,5 +406,78 @@ test('check-around on every street reaches showdown', () => {
   const result = events.find((e) => e.type === 'result');
   assert.equal(result.showdown, true);
   assert.equal(result.reveals.length, 3);
+  t.destroy();
+});
+
+test('UTG straddle posts 2x BB and acts last preflop', () => {
+  const { t } = makeTable(4);
+  t.setStraddle('p3', true); // seat 3 is UTG when the dealer is seat 0
+  t.startHand();
+  assert.equal(t.hand.straddleSeat, 3);
+  assert.equal(t.seats[3].stack, 196);
+  assert.equal(t.hand.currentBet, 4);
+  assert.equal(actor(t), 'p0', 'action starts left of the straddle');
+  assert.equal(t.legalActions('p0').minRaiseTo, 8);
+  t.act('p0', 'call'); t.act('p1', 'call'); t.act('p2', 'call');
+  assert.equal(actor(t), 'p3', 'straddler gets the option');
+  t.act('p3', 'check');
+  assert.equal(t.hand.phase, 'flop');
+  assert.equal(t._potTotal(), 16);
+  t.destroy();
+});
+
+test('straddle is ignored heads-up and when the stack is too short', () => {
+  const { t } = makeTable(2);
+  t.setStraddle('p1', true);
+  t.startHand();
+  assert.equal(t.hand.straddleSeat, null);
+  t.destroy();
+  const { t: t3 } = makeTable(3, { stacks: [200, 200, 3] });
+  t3.setStraddle('p2', true);
+  t3.startHand();
+  assert.equal(t3.hand.straddleSeat, null);
+  t3.destroy();
+});
+
+test('winner of an uncontested pot can show cards; history hides them until then', async () => {
+  const { t, events } = makeTable(3);
+  t.startHand();
+  t.act('p0', 'raise', 10);
+  t.act('p1', 'fold');
+  t.act('p2', 'fold');
+  assert.equal(t.state('p1').hand.canShow, false);
+  assert.equal(t.state('p0').hand.canShow, true);
+  assert.equal(t.historyFor('p1')[0].players.find((p) => p.playerId === 'p0').cards, null, 'not public');
+  assert.equal(t.historyFor('p0')[0].players.find((p) => p.playerId === 'p0').cards.length, 2, 'own cards visible to self');
+  assert.deepEqual(t.showCards('p1'), { error: 'You have no cards to show' });
+  assert.equal(t.showCards('p0').ok, true);
+  const shown = events.find((e) => e.type === 'showCards');
+  assert.equal(shown.playerId, 'p0');
+  assert.equal(t.state('p1').seats[0].cards.length, 2, 'now everyone sees them');
+  assert.equal(t.historyFor('p1')[0].players.find((p) => p.playerId === 'p0').cards.length, 2);
+  await sleep(30);
+  t.destroy();
+});
+
+test('rebuys need host approval', async () => {
+  const { t, events } = makeTable(2, { stacks: [50, 200] });
+  t.startHand();
+  t.act('p0', 'allin');
+  t.act('p1', 'call');
+  await sleep(300);
+  const loser = t.seats[0].stack === 0 ? 'p0' : 'p1';
+  assert.equal(t.requestRebuy(loser, 200).pending, true);
+  assert.equal(t.state('p0').rebuyRequests.length, 1, 'host sees the request');
+  assert.equal(t.state(loser).seats.find((p) => p.id === loser).rebuyRequested, 200);
+  const before = t.getPlayer(loser).stack;
+  t.approveRebuy(loser, 150);
+  assert.equal(t.getPlayer(loser).stack, before + 150);
+  assert.equal(t.getPlayer(loser).sittingOut, false);
+  assert.ok(events.find((e) => e.type === 'rebuyApproved'));
+  assert.equal(t.state('p0').rebuyRequests.length, 0);
+  t.requestRebuy(loser, 100);
+  t.denyRebuy(loser);
+  assert.ok(events.find((e) => e.type === 'rebuyDenied'));
+  assert.equal(t.getPlayer(loser).stack, before + 150);
   t.destroy();
 });

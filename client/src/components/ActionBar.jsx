@@ -133,8 +133,7 @@ export default function ActionBar({ legal, hand, bb, inBB, onAct, preAction, set
             </button>
           ) : (
             <button className="abtn abtn-raise" onClick={() => setRaiseOpen(true)}>
-              <span className="abtn-title">{raiseLabel}</span>
-              <span className="abtn-sub">{fmtAmount(minRaiseTo, bb, inBB)}</span>
+              <span className="abtn-title">{currentBet === 0 ? 'Bet' : 'Raise'}</span>
               <span className="abtn-key">R</span>
             </button>
           )

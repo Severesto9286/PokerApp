@@ -139,7 +139,7 @@ io.on('connection', (socket) => {
     if (!seated && !pending) return reply(cb, { error: 'You are no longer at this table.' });
     bindSocketToTable(socket, table.id, playerId);
     if (seated) table.setConnected(playerId, true);
-    reply(cb, { ok: true, tableId: table.id, pending: !!pending, state: table.state(playerId), chat: table.chat.slice(-60), history: table.history.slice(0, 30) });
+    reply(cb, { ok: true, tableId: table.id, pending: !!pending, state: table.state(playerId), chat: table.chat.slice(-60), history: table.historyFor(playerId, 30) });
   });
 
   socket.on('table:leave', (_, cb) => {
@@ -170,14 +170,32 @@ io.on('connection', (socket) => {
   socket.on('rebuy', ({ amount } = {}, cb) => {
     const ctx = getContext(socket);
     if (!ctx) return reply(cb, { error: 'Not at a table' });
-    reply(cb, ctx.table.rebuy(ctx.playerId, amount));
+    reply(cb, ctx.table.requestRebuy(ctx.playerId, amount));
   });
 
-  socket.on('prefs', ({ runItTwice } = {}, cb) => {
+  socket.on('rebuy:cancel', (_, cb) => {
     const ctx = getContext(socket);
     if (!ctx) return reply(cb, { error: 'Not at a table' });
-    if (runItTwice !== undefined) ctx.table.setRunItTwice(ctx.playerId, runItTwice);
+    reply(cb, ctx.table.cancelRebuy(ctx.playerId));
+  });
+
+  socket.on('prefs', ({ straddle } = {}, cb) => {
+    const ctx = getContext(socket);
+    if (!ctx) return reply(cb, { error: 'Not at a table' });
+    if (straddle !== undefined) ctx.table.setStraddle(ctx.playerId, straddle);
     reply(cb, { ok: true });
+  });
+
+  socket.on('showCards', (_, cb) => {
+    const ctx = getContext(socket);
+    if (!ctx) return reply(cb, { error: 'Not at a table' });
+    reply(cb, ctx.table.showCards(ctx.playerId));
+  });
+
+  socket.on('ritVote', ({ yes } = {}, cb) => {
+    const ctx = getContext(socket);
+    if (!ctx) return reply(cb, { error: 'Not at a table' });
+    reply(cb, ctx.table.voteRunItTwice(ctx.playerId, yes));
   });
 
   socket.on('chat', ({ text } = {}, cb) => {
@@ -190,7 +208,7 @@ io.on('connection', (socket) => {
   socket.on('history', (_, cb) => {
     const ctx = getContext(socket);
     if (!ctx) return reply(cb, { history: [] });
-    reply(cb, { history: ctx.table.history.slice(0, 50) });
+    reply(cb, { history: ctx.table.historyFor(ctx.playerId, 50) });
   });
 
   // ── Host controls ──
@@ -208,7 +226,9 @@ io.on('connection', (socket) => {
   socket.on('host:pause', hostOnly(({ table }, { paused }) => { table.setPaused(paused); }));
   socket.on('host:nextVariant', hostOnly(({ table }, { variant }) => { table.forceNextVariant(variant); }));
   socket.on('host:setStack', hostOnly(({ table }, { playerId, amount }) => table.setStack(playerId, amount)));
-  socket.on('host:addChips', hostOnly(({ table }, { playerId, amount }) => table.rebuy(playerId, amount)));
+  socket.on('host:addChips', hostOnly(({ table }, { playerId, amount }) => table.addChips(playerId, amount)));
+  socket.on('host:approveRebuy', hostOnly(({ table }, { playerId, amount }) => table.approveRebuy(playerId, amount)));
+  socket.on('host:denyRebuy', hostOnly(({ table }, { playerId }) => table.denyRebuy(playerId)));
   socket.on('host:kick', hostOnly(({ table }, { playerId }) => {
     if (table.isHost(playerId)) return { error: 'Cannot remove the host' };
     return table.removePlayer(playerId, 'kicked');

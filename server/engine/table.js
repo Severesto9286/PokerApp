@@ -33,6 +33,7 @@ const DEFAULT_TIMING = {
   riverDelay: 2400,       // suspense before the last card
   showdownHold: 6000,     // results stay on screen before the hand ends
   foldWinHold: 2600,
+  ritVote: 10000,         // how long players get to answer "run it twice?"
 };
 
 class Table {
@@ -45,6 +46,7 @@ class Table {
     this.deckFactory = opts.deckFactory || freshDeck;
     this.seats = Array.from({ length: this.config.maxSeats }, () => null);
     this.pending = [];
+    this.rebuyRequests = [];
     this.hand = null;
     this.handNumber = 0;
     this.history = [];
@@ -121,7 +123,7 @@ class Table {
     const player = {
       id: req.id, name: req.name, avatar: req.avatar, seat,
       stack: req.buyIn, connected: true, sittingOut: false,
-      timeBank: this.config.timeBank, runItTwice: true,
+      timeBank: this.config.timeBank, straddle: false,
       cards: [], folded: false, allIn: false, streetBet: 0, handBet: 0,
       acted: false, raiseLocked: false, lastAction: null, inHand: false,
       pendingRebuy: 0, leaving: false,
@@ -150,6 +152,7 @@ class Table {
       }
       return { ok: true, deferred: true };
     }
+    this.rebuyRequests = this.rebuyRequests.filter((r) => r.id !== id);
     this.seats[p.seat] = null;
     this.emit('playerLeft', { playerId: id, seat: p.seat, reason });
     return { ok: true };
@@ -178,28 +181,91 @@ class Table {
     return { ok: true };
   }
 
-  setRunItTwice(id, enabled) {
+  setStraddle(id, enabled) {
     const p = this.getPlayer(id);
     if (!p) return { error: 'Not seated' };
-    p.runItTwice = !!enabled;
+    p.straddle = !!enabled;
     this.emit('prefs', { playerId: id });
     return { ok: true };
   }
 
-  rebuy(id, amount) {
+  // Players ask; the host approves (or just adds chips directly).
+  requestRebuy(id, amount) {
     const p = this.getPlayer(id);
     if (!p) return { error: 'Not seated' };
-    if (!this.config.allowRebuy && !this.isHost(id)) return { error: 'Rebuys are disabled' };
+    if (!this.config.allowRebuy) return { error: 'Rebuys are disabled at this table' };
+    const add = this._sanitizeBuyIn(amount);
+    const existing = this.rebuyRequests.find((r) => r.id === id);
+    if (existing) existing.amount = add;
+    else this.rebuyRequests.push({ id, name: p.name, avatar: p.avatar, amount: add, at: Date.now() });
+    this.emit('rebuyRequest', { playerId: id, name: p.name, amount: add });
+    return { ok: true, pending: true };
+  }
+
+  cancelRebuy(id) {
+    this.rebuyRequests = this.rebuyRequests.filter((r) => r.id !== id);
+    this.emit('prefs', { playerId: id });
+    return { ok: true };
+  }
+
+  approveRebuy(id, amount) {
+    const req = this.rebuyRequests.find((r) => r.id === id);
+    if (!req) return { error: 'No such request' };
+    this.rebuyRequests = this.rebuyRequests.filter((r) => r.id !== id);
+    const res = this.addChips(id, amount !== undefined && amount !== null ? amount : req.amount);
+    if (!res.error) this.emit('rebuyApproved', { playerId: id, amount: res.amount, pending: !!res.pending });
+    return res;
+  }
+
+  denyRebuy(id) {
+    this.rebuyRequests = this.rebuyRequests.filter((r) => r.id !== id);
+    this.emit('rebuyDenied', { playerId: id });
+    return { ok: true };
+  }
+
+  addChips(id, amount) {
+    const p = this.getPlayer(id);
+    if (!p) return { error: 'Not seated' };
     const add = this._sanitizeBuyIn(amount);
     if (this.hand && p.inHand && !this.hand.finished) {
       p.pendingRebuy += add;
       this.emit('prefs', { playerId: id });
-      return { ok: true, pending: true };
+      return { ok: true, pending: true, amount: add };
     }
     p.stack += add;
     p.sittingOut = false;
     this.emit('stackChange', { playerId: id, seat: p.seat, stack: p.stack, delta: add });
     if (!this.hand && this.config.autoDeal && this.canStartHand()) this._scheduleAutoDeal();
+    return { ok: true, amount: add };
+  }
+
+  // After winning without a showdown, the winner may show their cards.
+  showCards(id) {
+    const hand = this.hand;
+    const p = this.getPlayer(id);
+    if (!hand || !hand.finished || !p) return { error: 'Nothing to show right now' };
+    if (!p.inHand || p.folded || !p.cards.length) return { error: 'You have no cards to show' };
+    if (hand.revealed.has(p.seat)) return { ok: true };
+    hand.revealed.add(p.seat);
+    const record = this.history.find((r) => r.handNumber === hand.number);
+    if (record) {
+      const entry = record.players.find((x) => x.playerId === id);
+      if (entry) entry.cards = p.cards;
+    }
+    this.emit('showCards', { seat: p.seat, playerId: id, cards: p.cards });
+    return { ok: true };
+  }
+
+  // Run-it-twice is decided per hand by the players involved in the all-in.
+  voteRunItTwice(id, yes) {
+    const hand = this.hand;
+    const p = this.getPlayer(id);
+    if (!hand || !hand.rit || !p) return { error: 'No run-it-twice decision pending' };
+    if (!(p.seat in hand.rit.votes)) return { error: 'You are not in this pot' };
+    if (hand.rit.votes[p.seat] !== null) return { ok: true };
+    hand.rit.votes[p.seat] = !!yes;
+    this.emit('ritVote', { seat: p.seat, playerId: id, yes: !!yes });
+    if (Object.values(hand.rit.votes).every((v) => v !== null)) { this._clearTimer('rit'); this._resolveRit(); }
     return { ok: true };
   }
 
@@ -296,11 +362,11 @@ class Table {
       deck: this.deckFactory(),
       board: [], board2: null, sharedBoard: null,
       phase: 'preflop',
-      dealerSeat, sbSeat: null, bbSeat: null, actionSeat: null,
+      dealerSeat, sbSeat: null, bbSeat: null, straddleSeat: null, actionSeat: null,
       currentBet: 0, minRaise: this.config.bigBlind,
       aggressorSeat: null,
       revealed: new Set(),
-      runItTwice: false,
+      runItTwice: false, rit: null,
       deadline: null, usingTimeBank: false,
       log: [],
       finished: false,
@@ -332,6 +398,18 @@ class Table {
       this._post(this.seats[hand.bbSeat], this.config.bigBlind, 'bb');
       hand.currentBet = this.config.bigBlind;
       hand.minRaise = this.config.bigBlind;
+      // UTG straddle: a live blind of 2x the big blind, posted before the cards.
+      if (!headsUp) {
+        const utg = this._nextSeatAfter(hand.bbSeat, order);
+        const sp = this.seats[utg];
+        const amount = this.config.bigBlind * 2;
+        if (sp.straddle && sp.stack >= amount) {
+          this._post(sp, amount, 'straddle');
+          hand.straddleSeat = utg;
+          hand.currentBet = amount;
+          hand.minRaise = amount;
+        }
+      }
     }
 
     for (let c = 0; c < cardsEach; c++) {
@@ -346,8 +424,8 @@ class Table {
     } else {
       const active = this._activeSeats();
       if (active.length === 0) return this._continueAfterNoAction(), { ok: true, handNumber: hand.number };
-      // Preflop: first to act is left of the big blind (heads-up: the dealer/SB).
-      const first = this._nextSeatAfter(hand.bbSeat, active);
+      // Preflop: first to act is left of the big blind / straddle (heads-up: the dealer/SB).
+      const first = this._nextSeatAfter(hand.straddleSeat ?? hand.bbSeat, active);
       this._setActor(first);
     }
     return { ok: true, handNumber: hand.number };
@@ -360,7 +438,7 @@ class Table {
     const actual = Math.min(amount, p.stack);
     p.stack -= actual;
     p.handBet += actual;
-    if (kind === 'sb' || kind === 'bb') p.streetBet += actual;
+    if (kind === 'sb' || kind === 'bb' || kind === 'straddle') p.streetBet += actual;
     if (p.stack === 0) p.allIn = true;
     this.hand.log.push({ seat: p.seat, action: kind, amount: actual, street: 'preflop' });
     this.emit('post', { seat: p.seat, playerId: p.id, kind, amount: actual, allIn: p.allIn, stack: p.stack, streetBet: p.streetBet });
@@ -605,14 +683,33 @@ class Table {
     this._clearTimer('action');
     const livePlayers = this._liveSeats().map((s) => this.seats[s]);
     for (const p of livePlayers) hand.revealed.add(p.seat);
-    const canRIT = this.config.runItTwice && !hand.doubleBoard && hand.board.length < 5 && livePlayers.every((p) => p.runItTwice);
-    hand.runItTwice = canRIT;
     hand.sharedBoard = hand.board.slice();
-    this.emit('reveal', {
-      seats: livePlayers.map((p) => ({ seat: p.seat, playerId: p.id, cards: p.cards })),
-      runItTwice: canRIT,
-    });
+    this.emit('reveal', { seats: livePlayers.map((p) => ({ seat: p.seat, playerId: p.id, cards: p.cards })) });
 
+    const canOffer = this.config.runItTwice && !hand.doubleBoard && hand.board.length < 5 && livePlayers.length >= 2;
+    if (canOffer) {
+      const votes = {};
+      for (const p of livePlayers) votes[p.seat] = null;
+      hand.rit = { votes, deadline: Date.now() + this.timing.ritVote, seats: livePlayers.map((p) => p.seat) };
+      this.emit('ritOffer', { seats: hand.rit.seats, deadline: hand.rit.deadline });
+      this._setTimer('rit', () => this._resolveRit(), this.timing.ritVote);
+      return;
+    }
+    this._startRunout(false);
+  }
+
+  _resolveRit() {
+    const hand = this.hand;
+    if (!hand || !hand.rit) return;
+    const yes = Object.values(hand.rit.votes).every((v) => v === true);
+    hand.rit = null;
+    this.emit('ritDecided', { runItTwice: yes });
+    this._startRunout(yes);
+  }
+
+  _startRunout(canRIT) {
+    const hand = this.hand;
+    hand.runItTwice = canRIT;
     const streets = STREETS.slice(STREETS.indexOf(hand.phase) + 1);
     const plan = streets.map((st) => ({ st, key: 'board' }));
     if (canRIT) {
@@ -731,11 +828,13 @@ class Table {
     this._clearTimer('action');
     const players = this._inHandPlayers().map((p) => ({
       seat: p.seat, playerId: p.id, name: p.name, avatar: p.avatar,
-      cards: (hand.revealed.has(p.seat) || !p.folded) ? p.cards : null,
+      cards: hand.revealed.has(p.seat) ? p.cards : null,
       folded: p.folded, handBet: p.handBet, stackAfter: p.stack,
       net: p.stack - (p.stackBefore ?? p.stack),
     }));
-    const record = { ...result, players, log: hand.log.slice(), at: Date.now(), dealerSeat: hand.dealerSeat, blinds: { sb: this.config.smallBlind, bb: this.config.bigBlind } };
+    // Everyone's hole cards are kept privately so each player can see their own in the history.
+    const holeCards = Object.fromEntries(this._inHandPlayers().map((p) => [p.id, p.cards]));
+    const record = { ...result, players, holeCards, log: hand.log.slice(), at: Date.now(), dealerSeat: hand.dealerSeat, blinds: { sb: this.config.smallBlind, bb: this.config.bigBlind } };
     this.history.unshift(record);
     if (this.history.length > 100) this.history.pop();
     this.lastResult = result;
@@ -771,6 +870,14 @@ class Table {
     this._setTimer('autoDeal', () => { this.autoDealAt = null; if (this.canStartHand()) this.startHand(); }, ms);
   }
 
+  // History as seen by one player: public cards plus their own.
+  historyFor(playerId, limit = 50) {
+    return this.history.slice(0, limit).map(({ holeCards, ...rec }) => ({
+      ...rec,
+      players: rec.players.map((pl) => (pl.playerId === playerId && !pl.cards && holeCards[playerId] ? { ...pl, cards: holeCards[playerId] } : pl)),
+    }));
+  }
+
   // ─── Chat ──────────────────────────────────────────────────────────────────
   addChat(playerId, text) {
     const p = this.getPlayer(playerId);
@@ -792,13 +899,15 @@ class Table {
       id: p.id, name: p.name, avatar: p.avatar, seat: p.seat, stack: p.stack,
       connected: p.connected, sittingOut: p.sittingOut, inHand: p.inHand,
       folded: p.folded, allIn: p.allIn, streetBet: p.streetBet, handBet: p.handBet,
-      lastAction: p.lastAction, timeBank: p.timeBank, runItTwice: p.runItTwice,
+      lastAction: p.lastAction, timeBank: p.timeBank, straddle: p.straddle,
+      rebuyRequested: this.rebuyRequests.some((r) => r.id === p.id) ? this.rebuyRequests.find((r) => r.id === p.id).amount : 0,
       cardCount: p.cards.length,
       cards: showCards ? p.cards : null,
       pendingRebuy: p.pendingRebuy, leaving: p.leaving,
       isDealer: !!hand && hand.dealerSeat === p.seat,
       isSB: !!hand && hand.sbSeat === p.seat,
       isBB: !!hand && hand.bbSeat === p.seat,
+      isStraddle: !!hand && hand.straddleSeat === p.seat,
     };
   }
 
@@ -817,11 +926,15 @@ class Table {
         currentBet: hand.currentBet, minRaise: hand.minRaise,
         pots: this._displayPots(), potTotal: this._potTotal(),
         runItTwice: hand.runItTwice, runningOut: hand.runningOut, finished: hand.finished,
+        rit: hand.rit ? { seats: hand.rit.seats, votes: hand.rit.votes, deadline: hand.rit.deadline } : null,
+        straddleSeat: hand.straddleSeat,
+        canShow: !!(hand.finished && this.lastResult && !this.lastResult.showdown && viewer && viewer.inHand && !viewer.folded && viewer.cards.length && !hand.revealed.has(viewer.seat)),
         bombAnte: hand.bombAnte,
       } : null,
       legal: viewer ? this.legalActions(viewerId) : null,
       lastResult: this.lastResult,
       pending: this.isHost(viewerId) ? this.pending.map((r) => ({ id: r.id, name: r.name, buyIn: r.buyIn, avatar: r.avatar })) : [],
+      rebuyRequests: this.isHost(viewerId) ? this.rebuyRequests.map((r) => ({ id: r.id, name: r.name, amount: r.amount, avatar: r.avatar })) : [],
       pendingCount: this.pending.length,
       nextHandVariant: this.nextHandVariant,
       isHost: this.isHost(viewerId),

@@ -44,8 +44,9 @@ function Game({ session, onLeave, prefs, setPrefs }) {
 
   // Host: jump to the host tab when a join request arrives.
   useEffect(() => {
-    if (game.state?.isHost && game.state.pending.length > 0 && !panelOpen) { setPanelOpen(true); setTab('host'); }
-  }, [game.state?.pending.length, game.state?.isHost]);
+    const n = (game.state?.pending.length || 0) + (game.state?.rebuyRequests?.length || 0);
+    if (game.state?.isHost && n > 0 && !panelOpen) { setPanelOpen(true); setTab('host'); }
+  }, [game.state?.pending.length, game.state?.rebuyRequests?.length, game.state?.isHost]);
 
   const leave = () => confirm({
     title: 'Leave the table?',

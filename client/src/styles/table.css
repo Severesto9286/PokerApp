@@ -318,3 +318,19 @@
 .stage.is-portrait .hero-hint { font-size: 11px; top: -122px; }
 .seat.is-hero .seat-cards.hero-cards.is-folding { animation: fold-away-hero .5s ease-in both; }
 @keyframes fold-away-hero { to { opacity: 0; transform: translate(-50%, -180%) scale(.6) rotate(6deg); } }
+
+/* ── Run it twice prompt / show cards / rebuy ──────────────────────────── */
+.rit { right: 24px; bottom: 22px; width: 340px; background: rgba(12,12,12,.94); border: 1px solid rgba(242,182,50,.55); border-radius: 12px; padding: 14px 16px; z-index: 11; box-shadow: 0 10px 30px rgba(0,0,0,.6), 0 0 24px rgba(242,182,50,.15); animation: abtn-in .25s cubic-bezier(.2,.8,.2,1) both; }
+.rit-title { font-family: var(--font-cond); font-size: 22px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--gold); margin-bottom: 8px; }
+.rit-actions { display: flex; gap: 8px; margin-bottom: 10px; }
+.rit-actions .btn { flex: 1; }
+.rit-status { color: #ddd; font-size: 13px; margin-bottom: 10px; }
+.rit-timer { position: relative; height: 6px; background: #2a2a2a; border-radius: 3px; overflow: visible; margin-bottom: 8px; }
+.rit-timer-bar { height: 100%; background: linear-gradient(90deg, var(--gold), #ff9f1c); border-radius: 3px; transition: width .25s linear; }
+.rit-timer span { position: absolute; right: 0; top: -18px; font-size: 11px; color: var(--muted); }
+.rit-hint { font-size: 11px; color: var(--muted2); }
+.stage.is-portrait .rit { left: 12px; right: 12px; width: auto; bottom: 10px; }
+.showbtn { animation: abtn-in .25s cubic-bezier(.2,.8,.2,1) both; }
+.rebuy-pending { font-size: 12px; color: #ffd36b; text-shadow: 0 1px 4px rgba(0,0,0,.8); max-width: 260px; }
+.linkbtn { color: var(--muted); text-decoration: underline; font-size: 12px; margin-left: 4px; }
+.linkbtn:hover { color: #fff; }

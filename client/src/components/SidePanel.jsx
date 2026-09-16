@@ -74,6 +74,21 @@ function HostPanel({ state, send, toast, confirm }) {
         </section>
       )}
 
+      {state.rebuyRequests.length > 0 && (
+        <section className="hsec hsec-pending">
+          <h4>Rebuy requests</h4>
+          {state.rebuyRequests.map((r) => (
+            <div key={r.id} className="pending">
+              <span className="pending-av" style={{ background: avatarOf(r.avatar).bg }}>{avatarOf(r.avatar).emoji}</span>
+              <span className="pending-name">{r.name}</span>
+              <input type="number" className="pending-buyin" value={buyIns[`rb-${r.id}`] ?? r.amount} onChange={(e) => setBuyIns({ ...buyIns, [`rb-${r.id}`]: e.target.value })} />
+              <button className="btn btn-primary btn-sm" onClick={() => send('host:approveRebuy', { playerId: r.id, amount: Number(buyIns[`rb-${r.id}`] ?? r.amount) })}>Add</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => send('host:denyRebuy', { playerId: r.id })}>✕</button>
+            </div>
+          ))}
+        </section>
+      )}
+
       <section className="hsec">
         <h4>Game</h4>
         <div className="hrow">
@@ -101,7 +116,7 @@ function HostPanel({ state, send, toast, confirm }) {
           <NumField label="Ante" value={c.ante} min={0} onCommit={(v) => patch({ ante: v })} />
           <NumField label="Default buy-in" value={c.buyIn} min={1} onCommit={(v) => patch({ buyIn: v })} />
         </div>
-        <Toggle label="Players can rebuy" checked={c.allowRebuy} onChange={(v) => patch({ allowRebuy: v })} />
+        <Toggle label="Players can request rebuys" hint="Requests show up here for you to approve" checked={c.allowRebuy} onChange={(v) => patch({ allowRebuy: v })} />
         <p className="hint">Blind changes apply from the next hand.</p>
       </section>
 
@@ -133,7 +148,7 @@ function HostPanel({ state, send, toast, confirm }) {
           <NumField label="Time to act" value={c.actionTime} min={5} onCommit={(v) => patch({ actionTime: v })} suffix="s" />
           <NumField label="Time bank" value={c.timeBank} min={0} onCommit={(v) => patch({ timeBank: v })} suffix="s" />
         </div>
-        <Toggle label="Run it twice" hint="When everyone at the table has it on" checked={c.runItTwice} onChange={(v) => patch({ runItTwice: v })} />
+        <Toggle label="Offer run it twice" hint="Players in an all-in decide each time; everyone must agree" checked={c.runItTwice} onChange={(v) => patch({ runItTwice: v })} />
         <Toggle label="Auto-approve joins" checked={c.autoApprove} onChange={(v) => patch({ autoApprove: v })} />
       </section>
 
@@ -239,7 +254,7 @@ export default function SidePanel({ game, prefs, setPrefs, onLeave, open, onClos
           <button key={k} className={tab === k ? 'is-on' : ''} onClick={() => setTab(k)}>
             {l}
             {k === 'chat' && unread > 0 && tab !== 'chat' && <span className="tab-badge">{unread}</span>}
-            {k === 'host' && state.pending.length > 0 && <span className="tab-badge is-host">{state.pending.length}</span>}
+            {k === 'host' && state.pending.length + state.rebuyRequests.length > 0 && <span className="tab-badge is-host">{state.pending.length + state.rebuyRequests.length}</span>}
           </button>
         ))}
         <button className="panel-close" onClick={onClose}>✕</button>
